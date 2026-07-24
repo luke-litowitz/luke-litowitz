@@ -12,7 +12,15 @@ import assert from 'node:assert/strict';
 import { WorldGenerator, buildCycle, cyclePosition, ALL_COLS } from '../src/game/worldgen.js';
 import { difficultyAt, minSafeGap, TRAFFIC_SPAN, LOG_GAP, MIN_WATER_VELOCITY_DELTA } from '../src/game/config.js';
 import { SeededRNG } from '../src/core/math.js';
-import { PLAY_COL_MIN, PLAY_COL_MAX, SAFE_ROWS, PLAYER_HALF_W, HOP_DURATION } from '../src/core/constants.js';
+import {
+  PLAY_COL_MIN,
+  PLAY_COL_MAX,
+  SAFE_ROWS,
+  PLAYER_HALF_W,
+  HOP_DURATION,
+  COL_COUNT,
+  COL_MAX,
+} from '../src/core/constants.js';
 
 const SEEDS = [1, 7, 42, 1337, 90210, 555, 8675309, 2024];
 const ROWS = 500;
@@ -79,18 +87,33 @@ test('buildCycle meets its coverage floor', () => {
 
 test('cyclePosition wraps without a seam and respects direction', () => {
   const span = 35;
-  const startX = -span / 2;
   // Forward lane: position increases with time, then wraps to the far side.
-  const a = cyclePosition(0, span, 1, 5, 0, startX);
-  const b = cyclePosition(0, span, 1, 5, 1, startX);
+  const a = cyclePosition(0, span, 1, 5, 0);
+  const b = cyclePosition(0, span, 1, 5, 1);
   assert.ok(Math.abs(b - a - 5) < 1e-9);
-  const wrapped = cyclePosition(0, span, 1, 5, span / 5, startX);
+  const wrapped = cyclePosition(0, span, 1, 5, span / 5);
   assert.ok(Math.abs(wrapped - a) < 1e-9, 'one full period returns to the start');
 
   // Reverse lane travels the other way.
-  const c = cyclePosition(0, span, -1, 5, 0, startX);
-  const d = cyclePosition(0, span, -1, 5, 1, startX);
+  const c = cyclePosition(0, span, -1, 5, 0);
+  const d = cyclePosition(0, span, -1, 5, 1);
   assert.ok(d < c, 'reverse lanes must move in -X');
+});
+
+test('the travel window is centred on the playfield for any span', () => {
+  // Roads and rails use very different cycle lengths; both must be symmetric
+  // about x = 0, or one side of the field gets its hazards late.
+  for (const span of [35, 60, 124, 200]) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let t = 0; t < span / 5; t += 0.05) {
+      const x = cyclePosition(0, span, 1, 5, t);
+      min = Math.min(min, x);
+      max = Math.max(max, x);
+    }
+    assert.ok(Math.abs(min + span / 2) < 0.3, `span ${span}: left edge ${min}`);
+    assert.ok(Math.abs(max - span / 2) < 0.3, `span ${span}: right edge ${max}`);
+  }
 });
 
 /* ------------------------------------------------------------------ *
@@ -254,6 +277,51 @@ test('adjacent water rows always drift relative to each other', () => {
         );
       }
       prev = plan.velocity;
+    }
+  }
+});
+
+test('no hazard ever wraps into view', () => {
+  // A cycle wraps by teleporting its items from one end of the travel window
+  // to the other. If that window is not wide enough for the row's longest
+  // item, something appears inside the playfield with no approach and no
+  // warning — which is exactly what a long train used to do.
+  const screenHalf = COL_COUNT / 2 + 1;
+
+  for (const seed of SEEDS) {
+    const gen = new WorldGenerator(seed);
+    for (let i = 0; i < ROWS; i++) {
+      const plan = gen.next(i);
+      if (!plan.cycle) continue;
+      for (const item of plan.cycle.items) {
+        const clearance = plan.cycle.span / 2 - item.length / 2;
+        assert.ok(
+          clearance > screenHalf,
+          `seed ${seed} row ${plan.index} (${plan.type}): an item of length ` +
+            `${item.length.toFixed(1)} wraps at x=${clearance.toFixed(1)}, inside the playfield`,
+        );
+      }
+    }
+  }
+});
+
+test('a train is always visible on approach for its full warning time', () => {
+  for (const seed of SEEDS) {
+    const gen = new WorldGenerator(seed);
+    for (let i = 0; i < ROWS; i++) {
+      const plan = gen.next(i);
+      if (plan.type !== 'rail') continue;
+      const item = plan.cycle.items[0];
+      // Where the leading edge is at the moment the train re-enters the window.
+      const spawnCentre = -plan.cycle.span / 2;
+      const lead = spawnCentre + item.length / 2;
+      const entry = -(COL_MAX + 1.2);
+      const approach = (entry - lead) / plan.speed;
+      assert.ok(
+        approach >= plan.warnTime,
+        `seed ${seed} row ${plan.index}: only ${approach.toFixed(2)}s of approach ` +
+          `for a ${plan.warnTime.toFixed(2)}s warning`,
+      );
     }
   }
 });

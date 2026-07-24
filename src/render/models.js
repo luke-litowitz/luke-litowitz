@@ -574,12 +574,21 @@ export function logSpec(lengthTiles = 2) {
   const boxes = [];
   pushPrism(boxes, 'x', 0, cy, 0, len - 0.06, r, PALETTE.log);
 
-  // Bark ridges along the flanks; kept above the waterline so they read.
-  for (const z of [0.17, -0.17]) {
-    boxes.push({ pos: [0, cy + 0.2, z], size: [len * 0.72, 0.05, 0.07], color: PALETTE.logDark });
+  // Bark ridges along the flanks. The prism's widest cross-section reaches
+  // |z| = r only while |y - cy| <= r * 0.71, so the ridges sit low on the
+  // flank and stand 0.01 proud of it — level with the end rims, and still
+  // above the water plane at -WATER_SINK (-0.24) so they read.
+  for (const s of [1, -1]) {
+    boxes.push({
+      pos: [0, cy + 0.08, s * (r - 0.01)],
+      size: [len * 0.72, 0.09, 0.04],
+      color: PALETTE.logDark,
+    });
   }
-  boxes.push({ pos: [-len * 0.18, cy + 0.3, 0.06], size: [0.16, 0.05, 0.14], color: PALETTE.logDark });
-  boxes.push({ pos: [len * 0.22, cy + 0.29, -0.1], size: [0.13, 0.06, 0.12], color: PALETTE.logDark });
+  // Knots ride the shoulder, where the octagon steps in from r to r * 0.88, so
+  // they clear the trunk without ever poking above LOG_TOP_Y (0.16).
+  boxes.push({ pos: [-len * 0.18, cy + 0.285, 0.255], size: [0.16, 0.07, 0.14], color: PALETTE.logDark });
+  boxes.push({ pos: [len * 0.22, cy + 0.28, -0.24], size: [0.13, 0.08, 0.12], color: PALETTE.logDark });
 
   // End grain: a slightly oversized bark rim, then two concentric rings, each
   // stepping 0.01 further out so no two faces ever share a plane. The inner
@@ -688,7 +697,9 @@ export function treeSpec(variant = 0, rng) {
 
   if (v === 1) {
     // Conifer: thin trunk, four tapering tiers with visible steps.
-    const h = r.range(1.7, 2.4);
+    // `h` is the tier stack; the crown tip adds another 0.11, so the range is
+    // capped at 2.28 to keep the whole model inside the documented 2.4.
+    const h = r.range(1.7, 2.28);
     const tw = 0.2;
     trunk.push({ pos: [0, h * 0.14, 0], size: [tw, h * 0.28, tw], color: PALETTE.trunk });
     trunk.push({ pos: [0, 0.05, 0], size: [tw + 0.1, 0.1, tw + 0.1], color: PALETTE.trunkDark });
@@ -916,7 +927,8 @@ export function crateSpec(color = PALETTE.doubler) {
 
 /**
  * Level-crossing post: striped mast, cross-buck, and two lamps facing +X (the
- * playfield — the row mirrors the left-hand post with `rotation.y = π`).
+ * playfield — `rows.js` mirrors the right-hand post with `rotation.y = π` so
+ * both signals face inward).
  *
  * `parts.lamp` holds *only* the two bright bulbs, because `rows.js` toggles its
  * visibility to flash the warning; the hoods and dark lenses live in `post` so
@@ -1020,7 +1032,9 @@ export function eagleSpec() {
   const wing = (s) => [
     { pos: [s * 0.16, 0, 0], size: [0.32, 0.1, 0.48], color: dark },
     { pos: [s * 0.42, -0.01, 0.03], size: [0.24, 0.08, 0.4], color: '#3a332b' },
-    { pos: [s * 0.56, -0.02, 0.06], size: [0.12, 0.06, 0.3], color: dark },
+    // The forearm stops at ±0.58 so all three feather tips clear it; at 0.12
+    // long it swallowed the middle tip whole and the wing read as a paddle.
+    { pos: [s * 0.53, -0.02, 0.06], size: [0.1, 0.06, 0.3], color: dark },
     // Feather tips land on ±0.62 locally = ±0.80 in model space: 1.60 span.
     { pos: [s * 0.6, -0.02, -0.02], size: [0.04, 0.05, 0.1], color: darker },
     { pos: [s * 0.6, -0.03, 0.1], size: [0.04, 0.05, 0.12], color: darker },

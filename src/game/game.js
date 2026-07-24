@@ -457,11 +457,19 @@ export class Game {
     if (id === 'jetpack') this.camera.shake(0.2);
   }
 
+  /**
+   * Is it safe to cut the jetpack here?
+   *
+   * The landing is only resolved when the hop ends, and a log will have moved
+   * by then — so "a platform is under us right now" is not a promise. The
+   * jetpack therefore keeps burning until the player is over solid ground
+   * they can actually stand on, which is a promise.
+   */
   _canEndFlight() {
     const row = this.player.hop.active ? this.player.hop.toRow : this.player.gridRow;
     const type = this.world.rowType(row);
-    if (type !== 'water') return true;
-    return !!this.world.platformAt(row, this.player.x, this.player.grip);
+    if (type === null || type === 'water') return false;
+    return !this.world.isBlocked(row, Math.round(this.player.x));
   }
 
   /* ================================================================ *
@@ -497,6 +505,18 @@ export class Game {
         probe.halfD = this.player.halfD;
         const hit = this.world.hitTestPlayer(probe);
         if (hit) this.die(hit.cause);
+      } else if (playing && this.player.invulnerable > 0 && this.player.invulnerable < 0.3) {
+        // Do not let a shield's grace lapse while the vehicle that triggered
+        // it is still on top of the player — a slow bus takes longer to clear
+        // than the fixed grace period, and would simply kill them again.
+        const probe = this._probe;
+        probe.prevX = this.player.prevX;
+        probe.prevZ = this.player.prevZ;
+        probe.x = this.player.x;
+        probe.z = this.player.z;
+        probe.halfW = this.player.halfW;
+        probe.halfD = this.player.halfD;
+        if (this.world.hitTestPlayer(probe)) this.player.invulnerable = 0.3;
       }
 
       if (playing && this.player.alive) {

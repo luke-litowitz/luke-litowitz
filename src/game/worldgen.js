@@ -17,6 +17,7 @@ import { SeededRNG, clamp, lerp } from '../core/math.js';
 import {
   PLAY_COL_MIN,
   PLAY_COL_MAX,
+  COL_MAX,
   SAFE_ROWS,
   TILE,
   TRAIN_CAR_LENGTH,
@@ -526,12 +527,26 @@ export class WorldGenerator {
     const dir = rng.chance(0.5) ? 1 : -1;
     const speed = clamp(diff.trainSpeed * rng.range(0.9, 1.1), 8, MAX_TRAIN_SPEED);
     const cars = rng.int(diff.trainCars[0], diff.trainCars[1]);
+    const warnTime = clamp(2.4 - diff.t * 0.6, 1.4, 2.4);
 
     // One train per cycle. The gap is sized so the track is clear at any
     // given column for at least `trainWindow` seconds.
     const trainLength = cars * TRAIN_CAR_LENGTH;
     const minGap = Math.max(diff.trainWindow * speed, trainLength * 0.6);
-    const span = Math.max(TRAFFIC_SPAN, trainLength + minGap + speed * 1.5);
+
+    // The cycle must also be long enough that a train re-entering the travel
+    // window is fully off-screen *and* still has its whole warning time left
+    // to run. The window is centred on x = 0, so half of it has to cover the
+    // train's own length, the off-screen margin and the approach.
+    const entryClearance = (COL_MAX + 1.2) * TILE;
+    // A quarter second of headroom so the signal is already lit when the
+    // warning window opens, rather than starting at the exact same instant.
+    const spanForWarning = trainLength + 2 * (entryClearance + (warnTime + 0.25) * speed);
+    const span = Math.max(
+      TRAFFIC_SPAN,
+      trainLength + minGap + speed * 1.5,
+      spanForWarning,
+    );
 
     const cycle = buildCycle(rng, {
       span,
@@ -551,7 +566,7 @@ export class WorldGenerator {
       cycle,
       cars,
       signal: true,
-      warnTime: clamp(2.4 - diff.t * 0.6, 1.4, 2.4),
+      warnTime,
       coins: [],
       powerup: null,
     };
@@ -586,22 +601,24 @@ export class WorldGenerator {
 }
 
 /**
- * Utility used by tests and by the row runtime: wrap a cycle offset into the
- * world X position for a given time.
+ * Wrap a cycle offset into a world X position at a given time.
+ *
+ * The travel window is always centred on the playfield: `[-span/2, +span/2]`.
+ * That matters because rail rows use a much longer cycle than roads do (one
+ * train plus a multi-second gap), and anchoring every row to the road-sized
+ * window would put a rail wrap point *inside* the playfield — a train would
+ * blink into existence with its nose already on screen.
  *
  * @param {number} offset item offset within the cycle
  * @param {number} span   cycle length
  * @param {number} dir    +1 or -1
  * @param {number} speed  units per second (unsigned)
  * @param {number} time   seconds since the row was created
- * @param {number} startX left edge of the travel span in world units
  */
-export function cyclePosition(offset, span, dir, speed, time, startX) {
+export function cyclePosition(offset, span, dir, speed, time) {
   const u = (((offset + speed * time) % span) + span) % span;
+  const startX = -span / 2;
   return dir > 0 ? startX + u : startX + span - u;
 }
-
-/** Left edge of the traffic travel span in world units. */
-export const CYCLE_START_X = -(TRAFFIC_SPAN / 2);
 
 export { ALL_COLS };

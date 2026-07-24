@@ -24,7 +24,7 @@ import {
   TRAIN_CAR_LENGTH,
 } from '../core/constants.js';
 import { rowToZ, colToX, sweptAABB, clamp, hash01 } from '../core/math.js';
-import { cyclePosition, CYCLE_START_X, WorldGenerator } from './worldgen.js';
+import { cyclePosition, WorldGenerator } from './worldgen.js';
 import { vehicleById } from './vehicles.js';
 
 const COIN_Y = 0.42;
@@ -245,7 +245,7 @@ export class Row {
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
       it.prevX = it.x;
-      it.x = cyclePosition(it.offset, span, dir, speed, t, CYCLE_START_X);
+      it.x = cyclePosition(it.offset, span, dir, speed, t);
       // A wrap makes prevX meaningless for sweeping; treat it as continuous.
       if (Math.abs(it.x - it.prevX) > span * 0.5) it.prevX = it.x;
     }

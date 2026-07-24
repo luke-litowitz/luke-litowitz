@@ -173,6 +173,19 @@ export class Player {
     this.z = rowToZ(this.rowF);
     this._trackIdle(dt);
 
+    // A landing made under invulnerability can leave the player standing on
+    // open water. Once the grace runs out, the river claims them.
+    if (
+      !this.hop.active &&
+      !this.flying &&
+      !this.carrier &&
+      this.invulnerable <= 0 &&
+      ctx.world.rowType(this.gridRow) === 'water'
+    ) {
+      ctx.onDeath?.('water');
+      return;
+    }
+
     if (Math.abs(this.x) > BOUND_X) ctx.onDeath?.('void');
   }
 
@@ -248,7 +261,9 @@ export class Player {
         this._reject(ctx);
         return false;
       }
-      if (world.isBlocked(toRow, toCol)) {
+      // The jetpack flies over scenery. Without this, one tree in the wrong
+      // column parks the player for the rest of the burn with no control.
+      if (!this.flying && world.isBlocked(toRow, toCol)) {
         this._reject(ctx);
         return false;
       }

@@ -366,6 +366,40 @@ test('the eagle idle timer only resets on real forward progress', () => {
   assert.ok(p.idleTime > 0, 'a sideways hop does not');
 });
 
+test('invulnerability defers a water landing, it does not cancel it', () => {
+  const world = makeWorld({ 1: { type: 'water', platforms: [] } });
+  const sink = {};
+  const p = new Player();
+  const ctx = makeCtx(world, sink);
+  p.invulnerable = 0.2; // as if a shield had just absorbed a hit
+
+  p.requestMove('up');
+  run(p, ctx, HOP_DURATION + FIXED_DT * 2);
+  assert.equal(sink.death, undefined, 'the grace period should absorb the landing');
+  assert.equal(p.gridRow, 1);
+
+  run(p, ctx, 0.3);
+  assert.equal(sink.death, 'water', 'standing on open water is not survivable forever');
+});
+
+test('the jetpack flies over obstacles instead of parking in front of them', () => {
+  const world = makeWorld({ 1: { type: 'grass', blocked: [0] } });
+  const sink = {};
+  const p = new Player();
+  const ctx = makeCtx(world, sink);
+
+  // Grounded, a tree stops the hop.
+  p.requestMove('up');
+  run(p, ctx, 0.3);
+  assert.equal(p.gridRow, 0);
+  assert.equal(sink.blocked, 1);
+
+  // Burning the jetpack, the same tree is flown straight over.
+  p.flying = true;
+  run(p, ctx, 0.3);
+  assert.ok(p.gridRow >= 1, `expected to fly past the obstacle, stuck at row ${p.gridRow}`);
+});
+
 test('a dead player ignores input', () => {
   const p = new Player();
   const ctx = makeCtx(makeWorld(), {});
