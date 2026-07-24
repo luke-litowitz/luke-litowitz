@@ -28,6 +28,13 @@ const SWIPE_MIN_PX = 24;
 const TAP_MAX_PX = 24;
 const TAP_MAX_MS = 250;
 
+/**
+ * After a touch, browsers without Pointer Events synthesize a compatibility
+ * mouse down/up pair (~300 ms later, at the same spot). Ignore mouse input for
+ * this long after any touch so one tap is not read as two hops.
+ */
+const TOUCH_MOUSE_GUARD_MS = 700;
+
 const PAD_DEADZONE = 0.55;
 /** Held direction: fires once, waits, then auto-repeats at 8 Hz. */
 const PAD_REPEAT_DELAY = 0.35;
@@ -55,10 +62,17 @@ const MASK_START = 4;
  * ------------------------------------------------------------------ */
 
 /**
+ * Null-prototype so a lookup can only ever hit a key we put there. A plain
+ * object literal would resolve `code === 'constructor'` / `'toString'` to an
+ * inherited function and emit it as a movement direction.
+ */
+const table = (obj) => Object.freeze(Object.assign(Object.create(null), obj));
+
+/**
  * Keyed by `KeyboardEvent.code` (physical position) so WASD still forms a
  * cluster on AZERTY/Dvorak layouts.
  */
-const KEY_MOVE = Object.freeze({
+const KEY_MOVE = table({
   ArrowUp: 'up',
   KeyW: 'up',
   ArrowDown: 'down',
@@ -69,7 +83,7 @@ const KEY_MOVE = Object.freeze({
   KeyD: 'right',
 });
 
-const KEY_EVENT = Object.freeze({
+const KEY_EVENT = table({
   Space: 'confirm',
   Enter: 'confirm',
   NumpadEnter: 'confirm',
@@ -80,7 +94,7 @@ const KEY_EVENT = Object.freeze({
 });
 
 /** Codes whose default action scrolls the page or walks browser history. */
-const PREVENT_CODES = Object.freeze({
+const PREVENT_CODES = table({
   ArrowUp: 1,
   ArrowDown: 1,
   ArrowLeft: 1,
@@ -192,6 +206,8 @@ export class InputManager {
     this._startY = 0;
     this._startT = 0;
     this._swipeFired = false;
+    /** Timestamp of the last touch event, to reject compatibility mouse events. */
+    this._lastTouchT = -Infinity;
 
     /* Gamepad state. */
     this._hasGamepadAPI =
@@ -545,6 +561,9 @@ export class InputManager {
   }
 
   _cancelGesture() {
+    // Blur/disable can land mid-drag; hand the capture back or the target keeps
+    // swallowing pointer events for a gesture nobody is listening to any more.
+    if (this._pointerId >= 0) this._releaseCapture(this._pointerId);
     this._pointerDown = false;
     this._swipeFired = false;
     this._pointerId = -1;
@@ -606,6 +625,9 @@ export class InputManager {
 
   _onMouseDown(e) {
     if (this._destroyed || this._pointerDown || e.button !== 0) return;
+    // A tap already produced a gesture via touchstart/touchend; the browser's
+    // compatibility mouse pair must not replay it as a second hop.
+    if (nowMs() - this._lastTouchT < TOUCH_MOUSE_GUARD_MS) return;
     if (inInteractive(e.target)) return;
     this._pointerId = -2; // sentinel: a mouse gesture, not a touch id
     this._gestureStart(e.clientX, e.clientY);
@@ -630,6 +652,7 @@ export class InputManager {
   }
 
   _onTouchStart(e) {
+    this._lastTouchT = nowMs();
     if (this._destroyed || this._pointerDown) return;
     const touch = e.changedTouches && e.changedTouches[0];
     if (!touch || (e.touches && e.touches.length > 1)) return;
@@ -639,6 +662,7 @@ export class InputManager {
   }
 
   _onTouchMove(e) {
+    this._lastTouchT = nowMs();
     const t = this.target;
     // CSS `touch-action` is the real fix; this is the explicit opt-in for hosts
     // that still get rubber-band scrolling over the canvas.
@@ -656,11 +680,13 @@ export class InputManager {
   }
 
   _onTouchEnd(e) {
+    this._lastTouchT = nowMs();
     const touch = this._findTouch(e.changedTouches, this._pointerId);
     if (touch) this._gestureEnd(touch.clientX, touch.clientY);
   }
 
   _onTouchCancel(e) {
+    this._lastTouchT = nowMs();
     if (this._findTouch(e.changedTouches, this._pointerId)) this._cancelGesture();
   }
 
@@ -684,10 +710,15 @@ export class InputManager {
     if (!t || typeof t.addEventListener !== 'function') return;
 
     if (this._usePointerEvents) {
+      // A gesture may only *start* on the target, but it must be able to end
+      // anywhere: `setPointerCapture` can be refused, and without it a release
+      // over the DOM overlay would never reach a target-bound `pointerup`,
+      // wedging `_pointerDown` true and killing every later gesture. The
+      // pointerId check below keeps unrelated pointers out.
       t.addEventListener('pointerdown', this._onPointerDown);
-      t.addEventListener('pointermove', this._onPointerMove);
-      t.addEventListener('pointerup', this._onPointerUp);
-      t.addEventListener('pointercancel', this._onPointerCancel);
+      window.addEventListener('pointermove', this._onPointerMove);
+      window.addEventListener('pointerup', this._onPointerUp);
+      window.addEventListener('pointercancel', this._onPointerCancel);
     } else {
       t.addEventListener('mousedown', this._onMouseDown);
       window.addEventListener('mousemove', this._onMouseMove);
@@ -709,17 +740,19 @@ export class InputManager {
     document.removeEventListener('visibilitychange', this._onVisibility);
     window.removeEventListener('gamepadconnected', this._onPadConnected);
     window.removeEventListener('gamepaddisconnected', this._onPadDisconnected);
+    // Removed before the target guard: these live on `window`, so they must go
+    // even when the target has been torn down already.
+    window.removeEventListener('pointermove', this._onPointerMove);
+    window.removeEventListener('pointerup', this._onPointerUp);
+    window.removeEventListener('pointercancel', this._onPointerCancel);
+    window.removeEventListener('mousemove', this._onMouseMove);
+    window.removeEventListener('mouseup', this._onMouseUp);
 
     const t = this.target;
     if (!t || typeof t.removeEventListener !== 'function') return;
 
     t.removeEventListener('pointerdown', this._onPointerDown);
-    t.removeEventListener('pointermove', this._onPointerMove);
-    t.removeEventListener('pointerup', this._onPointerUp);
-    t.removeEventListener('pointercancel', this._onPointerCancel);
     t.removeEventListener('mousedown', this._onMouseDown);
-    window.removeEventListener('mousemove', this._onMouseMove);
-    window.removeEventListener('mouseup', this._onMouseUp);
     t.removeEventListener('touchstart', this._onTouchStart);
     t.removeEventListener('touchend', this._onTouchEnd);
     t.removeEventListener('touchcancel', this._onTouchCancel);

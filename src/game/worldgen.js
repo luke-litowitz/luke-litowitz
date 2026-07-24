@@ -448,7 +448,7 @@ export class WorldGenerator {
       speed,
       cycle,
       tint: index % 2 === 0 ? 0 : 1,
-      coins: rng.chance(0.35) ? this._rollCoins(diff, openCols, rng, 1) : [],
+      coins: rng.chance(0.4) ? this._rollCoins(diff, openCols, rng, 2) : [],
       powerup: null,
     };
   }
@@ -561,7 +561,7 @@ export class WorldGenerator {
    * Pickups
    * -------------------------------------------------------------- */
 
-  _rollCoins(diff, openCols, rng, maxCount = 3) {
+  _rollCoins(diff, openCols, rng, maxCount = 4) {
     if (openCols.length === 0) return [];
     this.rowsSinceCoin++;
     // Pity timer: guarantee a coin if the player has gone a long dry spell.
@@ -569,9 +569,10 @@ export class WorldGenerator {
     if (!rng.chance(chance)) return [];
     this.rowsSinceCoin = 0;
 
-    const count = rng.chance(0.12) ? Math.min(maxCount, 3) : 1;
-    const cols = rng.shuffle(openCols.slice()).slice(0, count);
-    return cols;
+    // Spread several coins across the row rather than one. A single coin is
+    // almost always in a column the player is not in.
+    const count = Math.min(maxCount, rng.int(2, 4));
+    return rng.shuffle(openCols.slice()).slice(0, count);
   }
 
   _rollPowerup(index, diff, openCols, rng) {

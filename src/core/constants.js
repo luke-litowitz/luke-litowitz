@@ -88,13 +88,23 @@ export const EAGLE_WARNING = 1.15;
  * ------------------------------------------------------------------ */
 
 export const COIN_VALUE = 1;
-export const COIN_SPAWN_CHANCE = 0.26;
-export const COIN_MAGNET_RADIUS = 3.6;
 export const COIN_PICKUP_RADIUS = 0.62;
 
+/**
+ * Coins always have a little pull, not just under the magnet power-up.
+ * Without it, collection requires landing on a coin's exact column — with 17
+ * playable columns that is a ~5% chance per coin, which starves the economy
+ * to the point where the cheapest character costs ~90 runs.
+ */
+export const COIN_MAGNET_BASE = 1.7;
+/** Radius while the magnet power-up is active. */
+export const COIN_MAGNET_RADIUS = 3.8;
+
 /** Score milestone that awards bonus coins. */
-export const MILESTONE_EVERY = 50;
-export const MILESTONE_BONUS = 10;
+export const MILESTONE_EVERY = 25;
+export const MILESTONE_BONUS = 5;
+/** Coins awarded per this many rows survived, paid out at the end of a run. */
+export const DISTANCE_PER_COIN = 12;
 
 /* ------------------------------------------------------------------ *
  * World generation

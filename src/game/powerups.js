@@ -7,7 +7,7 @@
  */
 
 import { getPowerup } from '../data/powerups.js';
-import { COIN_MAGNET_RADIUS } from '../core/constants.js';
+import { COIN_MAGNET_RADIUS, COIN_MAGNET_BASE } from '../core/constants.js';
 import { clamp } from '../core/math.js';
 
 export class PowerupSystem {
@@ -95,8 +95,9 @@ export class PowerupSystem {
     return this.has('doubler') ? 2 : 1;
   }
 
+  /** Coins always drift toward the player a little; the power-up widens it. */
   get magnetRadius() {
-    return this.has('magnet') ? COIN_MAGNET_RADIUS * this.magnetMultiplier : 0;
+    return (this.has('magnet') ? COIN_MAGNET_RADIUS : COIN_MAGNET_BASE) * this.magnetMultiplier;
   }
 
   get flying() {

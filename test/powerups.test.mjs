@@ -8,7 +8,11 @@ import assert from 'node:assert/strict';
 import { PowerupSystem } from '../src/game/powerups.js';
 import { POWERUPS, getPowerup, rollPowerup, powerupSpawnChance } from '../src/data/powerups.js';
 import { SeededRNG } from '../src/core/math.js';
-import { COIN_MAGNET_RADIUS, DIFFICULTY_MAX_SCORE } from '../src/core/constants.js';
+import {
+  COIN_MAGNET_RADIUS,
+  COIN_MAGNET_BASE,
+  DIFFICULTY_MAX_SCORE,
+} from '../src/core/constants.js';
 
 const step = (sys, seconds, hold) => {
   const dt = 1 / 120;
@@ -116,11 +120,22 @@ test('the shield is consumed once and only once', () => {
   assert.deepEqual(expired, ['shield']);
 });
 
-test('the magnet radius honours a character perk multiplier', () => {
+test('coins always have some pull, and the power-up widens it', () => {
   const sys = new PowerupSystem();
+  assert.equal(sys.magnetRadius, COIN_MAGNET_BASE, 'a baseline pull is always on');
   sys.activate('magnet');
   assert.equal(sys.magnetRadius, COIN_MAGNET_RADIUS);
+  assert.ok(
+    COIN_MAGNET_RADIUS > COIN_MAGNET_BASE * 1.8,
+    'the power-up must feel meaningfully stronger than the baseline',
+  );
+});
+
+test('the magnet radius honours a character perk multiplier', () => {
+  const sys = new PowerupSystem();
   sys.magnetMultiplier = 1.15;
+  assert.ok(Math.abs(sys.magnetRadius - COIN_MAGNET_BASE * 1.15) < 1e-9);
+  sys.activate('magnet');
   assert.ok(Math.abs(sys.magnetRadius - COIN_MAGNET_RADIUS * 1.15) < 1e-9);
 });
 
@@ -164,7 +179,7 @@ test('reset clears everything', () => {
   sys.activate('magnet');
   sys.reset();
   assert.equal(sys.hudList().length, 0);
-  assert.equal(sys.magnetRadius, 0);
+  assert.equal(sys.magnetRadius, COIN_MAGNET_BASE, 'reset falls back to the baseline pull');
   assert.equal(sys.timeScale, 1);
   assert.equal(sys.consumeShield(), false);
 });

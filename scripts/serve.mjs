@@ -59,6 +59,9 @@ const server = createServer(async (req, res) => {
   }
 });
 
+// Port 0 asks the OS for a free port — handy for test harnesses that must not
+// collide with a server someone left running.
 server.listen(PORT, () => {
-  console.log(`Crossy Cascade running at http://localhost:${PORT}/`);
+  const { port } = server.address();
+  console.log(`Crossy Cascade running at http://localhost:${port}/`);
 });

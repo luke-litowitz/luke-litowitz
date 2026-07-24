@@ -26,7 +26,10 @@ const CAGE_BAR = 0.055;
 const CAGE_CORNER = 0.075;
 /** Half-size of the whole crate; also its centre height, so y = 0 is the bottom. */
 const CRATE_HALF = CAGE_HALF + CAGE_CORNER / 2; // 0.2375 -> fits inside 0.6
-/** Plane the face emblems sit on: flush with the outside of the cage bars. */
+/**
+ * Plane the face emblems sit on. Deliberately 0.0025 *proud* of the cage bars
+ * rather than flush with them, so no emblem face is ever coplanar with a bar.
+ */
 const EMBLEM_R = CAGE_HALF + CAGE_BAR / 2 - 0.0225;
 /** Emblem plate thickness, thick enough to catch a highlight edge-on. */
 const EMBLEM_T = 0.05;
@@ -56,15 +59,18 @@ const EMBLEMS = {
     [-0.055, 0.055, 0.11, 0.11],
     [0.055, -0.055, 0.11, 0.11],
   ],
-  // Square clock face with hands at 12 and 3.
+  // Square clock face with hands at 12 and 3. The uprights span the rim's
+  // *inner* gap (0.17 centre-to-centre minus one 0.04 bar) and the hands stop
+  // on that same inner edge, so every cell butts up against its neighbour
+  // instead of sinking into it.
   slowmo: [
     [0, 0.085, 0.21, 0.04],
     [0, -0.085, 0.21, 0.04],
-    [-0.085, 0, 0.04, 0.17],
-    [0.085, 0, 0.04, 0.17],
+    [-0.085, 0, 0.04, 0.13],
+    [0.085, 0, 0.04, 0.13],
     [0, 0, 0.032, 0.032],
-    [0, 0.0435, 0.032, 0.055],
-    [0.0435, 0, 0.055, 0.032],
+    [0, 0.0405, 0.032, 0.049],
+    [0.0405, 0, 0.049, 0.032],
   ],
   // Stepped arrow pointing up-field.
   jetpack: [
@@ -234,7 +240,7 @@ export const POWERUPS = [
   {
     id: 'shield',
     name: 'Shield',
-    icon: '🛡',
+    icon: '🛡️',
     color: PALETTE.shield,
     duration: 20,
     description: 'Soaks up one fatal hit. Lasts 20 seconds or until it breaks.',
@@ -325,8 +331,12 @@ const WEIGHT_SLOPE = {
  * @returns {string} power-up id
  */
 export function rollPowerup(rng, score = 0) {
-  const t = clamp(score / DIFFICULTY_MAX_SCORE, 0, 1);
-  const picked = rng.weighted(POWERUPS, (p) => p.weight + WEIGHT_SLOPE[p.id] * t);
+  // A non-finite score, or an id with no slope entry, would make every weight
+  // NaN — and `SeededRNG.weighted` answers a NaN total by falling through to
+  // the *last* entry, so every crate in the run would silently become a
+  // jetpack. Both cases degrade to the flat early-game table instead.
+  const t = Number.isFinite(score) ? clamp(score / DIFFICULTY_MAX_SCORE, 0, 1) : 0;
+  const picked = rng.weighted(POWERUPS, (p) => p.weight + (WEIGHT_SLOPE[p.id] ?? 0) * t);
   return picked.id;
 }
 

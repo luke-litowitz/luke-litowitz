@@ -16,8 +16,6 @@ import { resolve, join } from 'node:path';
 import { chromium } from 'playwright-core';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
-const PORT = 8123;
-const BASE = `http://127.0.0.1:${PORT}`;
 const SHOT_DIR = join(ROOT, 'screenshots');
 
 const problems = [];
@@ -55,29 +53,47 @@ async function settle(page, screen, timeout = 15000) {
   }
 }
 
+/**
+ * Start the static server on an OS-assigned port and read the real port back
+ * from its banner. A fixed port would collide with a server left behind by an
+ * earlier run and fail in a way that looks like a game bug.
+ * @returns {Promise<{proc: import('node:child_process').ChildProcess, base: string}>}
+ */
 function startServer() {
-  const proc = spawn(process.execPath, [join(ROOT, 'scripts/serve.mjs'), String(PORT)], {
+  const proc = spawn(process.execPath, [join(ROOT, 'scripts/serve.mjs'), '0'], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return new Promise((res, rej) => {
-    const timer = setTimeout(() => rej(new Error('server did not start')), 8000);
+    const timer = setTimeout(() => {
+      proc.kill();
+      rej(new Error('server did not start'));
+    }, 10000);
     proc.stdout.on('data', (d) => {
-      if (String(d).includes('running at')) {
+      const m = /running at (http:\/\/[^/\s]+)/.exec(String(d));
+      if (m) {
         clearTimeout(timer);
-        res(proc);
+        res({ proc, base: m[1].replace('localhost', '127.0.0.1') });
       }
     });
-    proc.on('error', rej);
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      rej(err);
+    });
   });
 }
 
+let server = null;
+let browser = null;
+
 async function main() {
   await mkdir(SHOT_DIR, { recursive: true });
-  const server = await startServer();
+  const started = await startServer();
+  server = started.proc;
+  const BASE = started.base;
   log(`server up on ${BASE}`);
 
-  const browser = await chromium.launch({
+  browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
     args: [
       '--use-gl=angle',
@@ -113,27 +129,71 @@ async function main() {
   // simple but competent: aim at a column that is free in the next row, wait
   // for a log before committing to water, and never bounce between two rules.
   await page.evaluate(() => {
+    const HOP = 0.15;
+    const HALF_W = 0.3;
+
+    /**
+     * Will a lane be clear at `x` for the next `horizon` seconds?
+     * Solves for the interval during which each vehicle covers that point and
+     * checks it against the window the player needs to land and hop out again.
+     */
+    const laneClear = (row, x, horizon) => {
+      if (!row || (row.type !== 'road' && row.type !== 'rail')) return true;
+      const v = row.velocity;
+      if (!v) return true;
+      for (const it of row.items) {
+        const half = it.halfLen + HALF_W;
+        const a = (x - it.x - half) / v;
+        const b = (x - it.x + half) / v;
+        const t0 = Math.min(a, b);
+        const t1 = Math.max(a, b);
+        if (t1 > -0.05 && t0 < horizon) return false;
+      }
+      return true;
+    };
+
     window.__bot = (stats) => {
       const g = window.__crossy.game;
       const p = g.player;
       if (p.hop.active) return;
       const W = g.world;
       const col = Math.round(p.x);
+      const here = W.rowAt(p.gridRow);
       const next = p.gridRow + 1;
       const type = W.rowType(next);
       if (type === null) return;
 
+      // Standing in traffic with something bearing down: move, any direction.
+      const exposed = here && !laneClear(here, p.x, HOP + 0.3);
+
       if (type === 'water') {
-        const carry = p.carrier ? (W.rowAt(p.carrierRow)?.velocity || 0) * 0.15 : 0;
-        if (!W.platformAt(next, p.x + carry, 0)) { stats.waterWait++; return; }
+        const carry = p.carrier ? (W.rowAt(p.carrierRow)?.velocity || 0) * HOP : 0;
+        if (!W.platformAt(next, p.x + carry, 0)) {
+          stats.waterWait++;
+          return;
+        }
         stats.forward++;
         g.handleMove('up');
         return;
       }
 
-      if (Math.abs(col) <= 8 && !W.isBlocked(next, col)) {
+      const clearAhead = Math.abs(col) <= 8 && !W.isBlocked(next, col);
+
+      if (clearAhead && laneClear(W.rowAt(next), col, HOP + 0.45)) {
         stats.forward++;
         g.handleMove('up');
+        return;
+      }
+
+      if (exposed) {
+        // Retreat is better than standing in front of a bus.
+        stats.flee++;
+        g.handleMove(clearAhead ? 'up' : 'down');
+        return;
+      }
+
+      if (clearAhead) {
+        stats.laneWait++; // wait for a gap
         return;
       }
 
@@ -241,9 +301,10 @@ async function main() {
     let maxRows = 0;
     let maxScore = 0;
     let deaths = 0;
+    let scoreTotal = 0;
     let nan = null;
 
-    const stats = { forward: 0, side: 0, waterWait: 0, stuck: 0 };
+    const stats = { forward: 0, side: 0, waterWait: 0, laneWait: 0, flee: 0, stuck: 0 };
     g.start();
     for (let i = 0; i < 60000; i++) {
       if (i % 12 === 0) window.__bot(stats);
@@ -260,6 +321,7 @@ async function main() {
       // A finished run rolls straight into the next one.
       if (g.state === 'menu' && !g.player.alive) {
         deaths++;
+        scoreTotal += g.score;
         g.start();
       }
     }
@@ -280,6 +342,8 @@ async function main() {
       best: window.__crossy.profile.bestScore,
       deathStats: window.__crossy.profile.stats?.deaths,
       stats,
+      coinsPerRun: +(window.__crossy.profile.coins / Math.max(1, deaths)).toFixed(2),
+      avgScore: +(scoreTotal / Math.max(1, deaths)).toFixed(1),
     };
   });
   log('  soak:', JSON.stringify(soak));
@@ -290,6 +354,11 @@ async function main() {
   if (soak.deaths < 3) problems.push(`only ${soak.deaths} runs completed — the soak is not exercising death`);
   if (soak.maxScore < 30) problems.push(`best soak score was only ${soak.maxScore}`);
   if (soak.board === 0) problems.push('no run made it onto the leaderboard');
+  // Economy sanity: the cheapest character costs 30. A handful of average runs
+  // should unlock it, otherwise the shop is decoration.
+  if (soak.coinsPerRun < 6) {
+    problems.push(`only ${soak.coinsPerRun} coins per run — the shop is unreachable`);
+  }
   for (const cause of ['car', 'water']) {
     if (!soak.causes.includes(cause)) problems.push(`the soak never triggered a ${cause} death`);
   }
@@ -319,7 +388,7 @@ async function main() {
     let coinsSeen = 0;
     const railRows = new Set();
 
-    const why = { forward: 0, side: 0, waterWait: 0, stuck: 0 };
+    const why = { forward: 0, side: 0, waterWait: 0, laneWait: 0, flee: 0, stuck: 0 };
     g.start();
     for (let i = 0; i < 40000; i++) {
       if (i % 12 === 0) window.__bot(why);
@@ -418,11 +487,15 @@ async function main() {
     g.start();
     // Run the world forward until a rail row exists ahead of the player.
     let rail = null;
-    const stats = { forward: 0, side: 0, waterWait: 0, stuck: 0 };
+    const stats = { forward: 0, side: 0, waterWait: 0, laneWait: 0, flee: 0, stuck: 0 };
     for (let i = 0; i < 20000 && !rail; i++) {
-      if (g.state !== 'playing') g.start();
+      if (g.state !== 'playing' || !g.player.alive) {
+        g.start();
+        continue; // a dead player invalidates the rows we were about to use
+      }
       if (i % 12 === 0) window.__bot(stats);
       g.fixedUpdate(DT);
+      if (!g.player.alive) continue;
       for (const row of g.world.list) {
         if (row.type === 'rail' && row.index > g.player.gridRow) { rail = row; break; }
       }
@@ -533,9 +606,6 @@ async function main() {
   );
   if (overflow) problems.push('the page scrolls horizontally at 390px wide');
 
-  await browser.close();
-  server.kill();
-
   if (problems.length) {
     console.error(`\n${problems.length} problem(s):`);
     for (const p of problems) console.error(`  ✗ ${p}`);
@@ -544,7 +614,21 @@ async function main() {
   log(`\nsmoke test passed — screenshots in ${SHOT_DIR}`);
 }
 
-main().catch((err) => {
+/** Always tear down, whether the run passed, failed or threw. */
+async function cleanup() {
+  try {
+    await browser?.close();
+  } catch {
+    /* already gone */
+  }
+  server?.kill();
+}
+
+try {
+  await main();
+} catch (err) {
   console.error(err);
-  process.exit(1);
-});
+  process.exitCode = 1;
+} finally {
+  await cleanup();
+}

@@ -607,10 +607,12 @@ export class World {
         const dist = Math.hypot(dx, dz);
 
         if (magnetRadius > 0 && dist < magnetRadius) {
-          // Ease the coin toward the player; speed rises as it closes in.
-          const pull = clamp(1 - dist / magnetRadius, 0, 1);
-          coin.x += dx * Math.min(1, pull * 9 * dt);
-          coin.y += (0.55 - coin.y) * Math.min(1, 6 * dt);
+          // Ease the coin toward the player, accelerating as it closes in.
+          // The floor matters: a coin that only creeps once the player is
+          // already on top of it may as well not be attracted at all.
+          const pull = 0.25 + clamp(1 - dist / magnetRadius, 0, 1) * 1.4;
+          coin.x += dx * Math.min(1, pull * 12 * dt);
+          coin.y += (0.5 - coin.y) * Math.min(1, 8 * dt);
         }
 
         if (dist < COIN_PICKUP_RADIUS + (magnetRadius > 0 ? 0.2 : 0)) {

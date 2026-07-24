@@ -17,6 +17,7 @@ import {
   MILESTONE_EVERY,
   MILESTONE_BONUS,
   COIN_VALUE,
+  DISTANCE_PER_COIN,
   ROWS_BEHIND,
   TILE,
 } from '../core/constants.js';
@@ -301,7 +302,10 @@ export class Game {
 
     const perk = this.character?.perk;
     const bonus = perk?.id === 'coinBonus' ? clamp(perk.value, 1, 1.15) : 1;
-    const earned = Math.round(this.coins * bonus);
+    // Distance pays too, so a long clean run is worth something even when the
+    // route happened to be short on coins.
+    const distanceBonus = Math.floor(score / DISTANCE_PER_COIN);
+    const earned = Math.round((this.coins + distanceBonus) * bonus);
 
     addCoins(this.profile, earned);
     const stats = this.profile.stats?.deaths;

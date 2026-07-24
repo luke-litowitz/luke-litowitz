@@ -81,7 +81,7 @@ export function difficultyAt(score) {
     grassRun: [1, Math.round(lerp(3, 2, t))],
 
     /* Economy */
-    coinChance: lerp(0.3, 0.2, t),
+    coinChance: lerp(0.52, 0.38, t),
 
     /* Row-type weights (grass is handled separately as the connective tissue) */
     weights: {
