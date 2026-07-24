@@ -226,6 +226,42 @@ export class TerrainKit {
     this._boundaryRows = 96;
     this._boundaryGeo = null;
     this._time = 0;
+    /**
+     * Row meshes are recycled alongside the rows themselves. Geometry and
+     * materials are already shared, so this only saves the Mesh wrappers —
+     * but rows are created continuously while playing, and that is exactly
+     * the steady-state garbage a fixed-timestep loop does not want.
+     * @type {Map<string, THREE.Mesh[]>}
+     */
+    this._meshPool = new Map();
+  }
+
+  /** @private */
+  _takeMesh(key, geometry, material) {
+    const pool = this._meshPool.get(key);
+    const mesh = pool && pool.length ? pool.pop() : new THREE.Mesh(geometry, material);
+    mesh.geometry = geometry;
+    mesh.material = material;
+    mesh.userData.poolKey = key;
+    mesh.visible = true;
+    return mesh;
+  }
+
+  /**
+   * Hand a row's meshes back for reuse.
+   * @param {THREE.Mesh|null} base
+   * @param {THREE.Mesh|null} detail
+   */
+  releaseRowMeshes(base, detail) {
+    for (const mesh of [base, detail]) {
+      if (!mesh) continue;
+      mesh.removeFromParent();
+      const key = mesh.userData.poolKey;
+      if (!key) continue;
+      let pool = this._meshPool.get(key);
+      if (!pool) this._meshPool.set(key, (pool = []));
+      if (pool.length < 64) pool.push(mesh);
+    }
   }
 
   /** @param {object} biome entry from palette.js BIOMES */
@@ -261,27 +297,27 @@ export class TerrainKit {
 
     switch (plan.type) {
       case 'road': {
-        base = new THREE.Mesh(this.geo.road, plan.tint === 0 ? this.mat.road : this.mat.roadAlt);
+        base = this._takeMesh('road', this.geo.road, plan.tint === 0 ? this.mat.road : this.mat.roadAlt);
         if (neighbours.dashFront) {
-          detail = new THREE.Mesh(this.geo.roadDashFront, this.mat.detail);
+          detail = this._takeMesh('dashF', this.geo.roadDashFront, this.mat.detail);
         } else if (neighbours.dashBack) {
-          detail = new THREE.Mesh(this.geo.roadDashBack, this.mat.detail);
+          detail = this._takeMesh('dashB', this.geo.roadDashBack, this.mat.detail);
         }
         break;
       }
       case 'rail': {
-        base = new THREE.Mesh(this.geo.railBase, this.mat.rail);
-        detail = new THREE.Mesh(this.geo.railDetail, this.mat.detail);
+        base = this._takeMesh('rail', this.geo.railBase, this.mat.rail);
+        detail = this._takeMesh('railD', this.geo.railDetail, this.mat.detail);
         break;
       }
       case 'water': {
-        base = new THREE.Mesh(this.geo.water, this.mat.water);
-        detail = new THREE.Mesh(this.geo.waterFoam, this.mat.detail);
+        base = this._takeMesh('water', this.geo.water, this.mat.water);
+        detail = this._takeMesh('foam', this.geo.waterFoam, this.mat.detail);
         break;
       }
       case 'grass':
       default: {
-        base = new THREE.Mesh(this.geo.grass[plan.tint & 1], this.mat.grass);
+        base = this._takeMesh(`grass${plan.tint & 1}`, this.geo.grass[plan.tint & 1], this.mat.grass);
         break;
       }
     }
@@ -322,6 +358,7 @@ export class TerrainKit {
   }
 
   dispose() {
+    this._meshPool.clear();
     for (const g of Object.values(this.geo)) {
       if (Array.isArray(g)) g.forEach((x) => x.dispose());
       else g.dispose();

@@ -410,8 +410,7 @@ export class Row {
     for (const s of this._statics) props.release(s);
     this._statics.length = 0;
 
-    if (this.base) this.group.remove(this.base);
-    if (this.detail) this.group.remove(this.detail);
+    this.world.terrain.releaseRowMeshes(this.base, this.detail);
     this.base = null;
     this.detail = null;
 
@@ -641,7 +640,8 @@ export class World {
    * @param {(row: Row)=>void} cb
    */
   forEachNewWarning(cb) {
-    for (const row of this.list) {
+    for (let i = 0; i < this.list.length; i++) {
+      const row = this.list[i];
       if (row.type === 'rail' && row.warningOn && !row.hornPlayed) {
         row.hornPlayed = true;
         cb(row);

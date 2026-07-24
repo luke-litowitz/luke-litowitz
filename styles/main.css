@@ -179,10 +179,12 @@ body {
   list-style: none;
 }
 
+/* Never set `border-radius` here: the outline already follows the element's own
+   radius, and overriding it re-shapes the control the instant it takes focus
+   (pill icon buttons turn into squares, the PLAY button loses its big radius). */
 #ui :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
-  border-radius: var(--r-sm);
 }
 
 /* Fallback for engines without :focus-visible support. */
@@ -247,6 +249,12 @@ body {
   background: var(--surface);
   box-shadow: var(--shadow-3);
   animation: pop-in 220ms var(--ease) both;
+  /* `max-height` caps the panel, so anything taller than the viewport (the
+     settings list on a landscape phone) would spill outside the card with no
+     way to reach it: the modal's own scrollbar never engages, because as far
+     as it is concerned the capped flex item fits. The panel has to scroll. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .panel--wide {

@@ -971,6 +971,12 @@ export class UI {
     const coins = Math.max(0, Math.floor(this.profile.coins || 0));
     if (this._el.charsCoins) this._el.charsCoins.textContent = formatNumber(coins);
 
+    // Replacing the grid destroys whichever card had focus, and the browser
+    // drops focus to <body>. Without this, buying or selecting with the
+    // keyboard throws the player back to the top of the screen every time.
+    const active = document.activeElement;
+    const keepId = active && grid.contains(active) ? active.dataset?.charId || null : null;
+
     const html = [];
     for (const character of CHARACTERS) {
       html.push(this._cardMarkup(character, coins));
@@ -978,6 +984,24 @@ export class UI {
     grid.innerHTML = html.join('');
     this._lastPreviewId = null;
     this._previewCharacter(this.profile.selected);
+    if (keepId) this._restoreCardFocus(grid, keepId);
+  }
+
+  /**
+   * Put focus back on the card the player was standing on before a rebuild.
+   * @param {HTMLElement} grid
+   * @param {string} id
+   */
+  _restoreCardFocus(grid, id) {
+    for (const card of grid.children) {
+      if (card.dataset.charId !== id || card.disabled) continue;
+      try {
+        card.focus({ preventScroll: true });
+      } catch {
+        /* focus can be refused mid-transition; harmless */
+      }
+      return;
+    }
   }
 
   /**
@@ -1243,7 +1267,10 @@ export class UI {
       }
 
       const duration = src.duration > 0 ? src.duration : 1;
-      const pct = Math.round(clamp(src.remaining / duration, 0, 1) * 100);
+      // `clamp` passes NaN straight through, and NaN !== NaN would then write
+      // an invalid `--p` (killing the conic ring) on every single frame.
+      const ratio = src.remaining / duration;
+      const pct = Math.round(clamp(Number.isFinite(ratio) ? ratio : 0, 0, 1) * 100);
       if (pct !== chip.pct) {
         chip.pct = pct;
         chip.root.style.setProperty('--p', pct);

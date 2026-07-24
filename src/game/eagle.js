@@ -159,6 +159,10 @@ export class Eagle {
     if (this.model) return;
     this.model = this.props.eagle();
     this.model.position.set(this.x, this.y, this.z);
+    // Pooled props run with matrixAutoUpdate off, so a moved object keeps its
+    // old matrix until it is told otherwise — without this the eagle renders
+    // frozen at the world origin.
+    this.model.updateMatrix();
     this.scene.add(this.model);
   }
 
@@ -182,6 +186,7 @@ export class Eagle {
     const y = this.prevY + (this.y - this.prevY) * alpha;
     if (this.model) {
       this.model.position.set(this.x, y, this.z);
+      this.model.updateMatrix();
       const flap = Math.sin(elapsed * 22) * 0.7;
       if (this.model.parts?.wingL) this.model.parts.wingL.rotation.z = -0.25 + flap;
       if (this.model.parts?.wingR) this.model.parts.wingR.rotation.z = 0.25 - flap;

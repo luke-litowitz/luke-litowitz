@@ -146,12 +146,18 @@ That is why a character is one draw call and why the repo has no assets.
 - **Determinism.** Gameplay never calls `Math.random()`. Every run is driven by
   a seeded RNG (`SeededRNG`, mulberry32), so a seed reproduces a world exactly.
   Only cosmetic jitter (particles, clouds) uses unseeded randomness.
-- **No allocation in the hot path.** Hazard positions are analytic functions of
-  a row's age; collision uses scratch AABBs; particles live in flat typed
-  arrays; props and rows are pooled.
+- **Nothing allocates per step or per frame.** Hazard positions are analytic
+  functions of a row's age, so there is no spawn bookkeeping and a hazard's
+  previous position is always exactly recoverable. Collision uses scratch
+  AABBs and a reused hit record; the HUD payload is reused; particles live in
+  flat typed arrays; rows, props and row meshes are pooled. Streaming a new
+  row does allocate — once per row, not once per step.
+- **Measured budget.** At row ~500, in-browser: 231 draw calls, 30k triangles,
+  8 shader programs, 268 shadow casters.
 - **Graceful degradation.** Quality auto-detects from device memory and core
-  count. `localStorage` failures fall back to an in-memory profile. A missing
-  second WebGL context just disables the character preview.
+  count, then walks itself down a rung if the frame rate sags. `localStorage`
+  failures fall back to an in-memory profile. A missing second WebGL context
+  just disables the character preview.
 
 ## License
 

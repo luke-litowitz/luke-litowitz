@@ -87,8 +87,10 @@ export class PropFactory {
     if (!key) return;
     obj.visible = false;
     obj.removeFromParent();
+    obj.position.set(0, 0, 0);
     obj.scale.set(1, 1, 1);
     obj.rotation.set(0, 0, 0);
+    obj.updateMatrix();
     let pool = this._pools.get(key);
     if (!pool) this._pools.set(key, (pool = []));
     // A hard cap stops a long session from hoarding memory.
@@ -121,7 +123,9 @@ export class PropFactory {
   }
 
   lilypad(withFlower) {
-    return this.acquire(`lily:${withFlower ? 1 : 0}`, () => lilypadSpec(!!withFlower));
+    return this.acquire(`lily:${withFlower ? 1 : 0}`, () => lilypadSpec(!!withFlower), {
+      castShadow: false,
+    });
   }
 
   tree(variant, seed) {
@@ -138,7 +142,9 @@ export class PropFactory {
 
   bush(seed) {
     const b = seed % VARIANT_BUCKETS;
-    return this.acquire(`bush:${b}`, () => bushSpec(this._specRng.reset(3000 + b)));
+    return this.acquire(`bush:${b}`, () => bushSpec(this._specRng.reset(3000 + b)), {
+      castShadow: false,
+    });
   }
 
   obstacle(kind, variant, seed) {
@@ -159,7 +165,7 @@ export class PropFactory {
 
   powerupCrate(id) {
     const def = getPowerup(id) || POWERUPS[0];
-    return this.acquire(`pu:${def.id}`, () => def.build());
+    return this.acquire(`pu:${def.id}`, () => def.build(), { castShadow: false });
   }
 
   signal() {

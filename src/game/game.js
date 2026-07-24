@@ -99,6 +99,8 @@ export class Game {
     };
 
     this._hudState = { score: -1, best: -1, coins: -1 };
+    /** Reused HUD payload — setHUD runs on every rendered frame. */
+    this._hudPayload = { score: 0, best: 0, coins: 0, powerups: null, eagle: 0 };
     this._audioScale = 1;
     /** Reused probe for the swept collision query — no per-step allocation. */
     this._probe = { prevX: 0, prevZ: 0, x: 0, z: 0, halfW: 0, halfD: 0 };
@@ -638,14 +640,13 @@ export class Game {
   _updateHud() {
     if (!this.ui) return;
     if (this.state !== STATE.PLAYING && this.state !== STATE.DEAD && this.state !== STATE.PAUSED) return;
-    const best = Math.max(this.profile.bestScore || 0, this.score);
-    this.ui.setHUD({
-      score: this.score,
-      best,
-      coins: this.coins,
-      powerups: this.powerups.hudList(),
-      eagle: this.eagle.countdown,
-    });
+    const hud = this._hudPayload;
+    hud.score = this.score;
+    hud.best = Math.max(this.profile.bestScore || 0, this.score);
+    hud.coins = this.coins;
+    hud.powerups = this.powerups.hudList();
+    hud.eagle = this.eagle.countdown;
+    this.ui.setHUD(hud);
   }
 
   resize(width, height) {

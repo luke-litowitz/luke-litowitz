@@ -642,9 +642,20 @@ async function main() {
     for (let i = 0; i < 60; i++) g.fixedUpdate(DT);
 
     let warned = false;
+    let movedFromOrigin = false;
     for (let i = 0; i < 3000; i++) {
       g.fixedUpdate(DT);
+      g.render(0, DT);
       if (g.eagle.active) warned = true;
+      // The model is a pooled prop with matrixAutoUpdate off: check the real
+      // world matrix, not the position vector, so a missing updateMatrix()
+      // cannot pass.
+      const m = g.eagle.model;
+      if (m) {
+        m.updateMatrixWorld(true);
+        const p = m.matrixWorld.elements;
+        if (Math.abs(p[12]) + Math.abs(p[13]) + Math.abs(p[14]) > 0.5) movedFromOrigin = true;
+      }
       if (!g.player.alive) break;
     }
     // The carry-off must keep running past the death delay, through the
@@ -658,9 +669,13 @@ async function main() {
       cause: g.player.deathCause,
       idle: +g.player.idleTime.toFixed(1),
       carryFinished,
+      movedFromOrigin,
     };
   });
   log('  eagle:', JSON.stringify(eagle));
+  if (eagle.movedFromOrigin === false) {
+    problems.push('the eagle model never moved from the world origin (stale matrix)');
+  }
   if (eagle.carryFinished === false) {
     problems.push('the eagle froze mid-air instead of carrying the player off');
   }

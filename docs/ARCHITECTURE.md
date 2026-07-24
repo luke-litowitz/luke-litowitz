@@ -266,8 +266,14 @@ and must respect `prefers-reduced-motion`.
 ## 7. Non-negotiables
 
 - No network requests at runtime. No external fonts, no CDNs.
-- 60 fps on integrated graphics: pool rows/vehicles, merge geometry, cap
-  shadow-casting objects, never allocate in `fixedUpdate`.
+- Budget, measured in-browser at row ~500: **231 draw calls, 30k triangles,
+  8 shader programs, 268 shadow casters**. Rows, props and row meshes are
+  pooled; geometry is merged per part and shared between clones.
+- Nothing allocates in the *per-step* and *per-frame* paths — collision uses
+  scratch AABBs, the HUD payload and hazard-hit record are reused, particles
+  live in typed arrays, and hazard positions are analytic rather than stored.
+  Row **generation** does allocate (a row plan plus its cycle), but that runs
+  once per row streamed in, not once per step.
 - Deterministic given a seed: no `Math.random()` in gameplay code — use
   `SeededRNG`. (Cosmetic-only randomness may use `Math.random`.)
 - Pause must halt simulation *and* audio, and survive tab blur.
