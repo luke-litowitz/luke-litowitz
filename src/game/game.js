@@ -26,7 +26,7 @@ import { biomeForScore, PALETTE } from '../render/palette.js';
 import { TerrainKit } from '../render/terrain.js';
 import { PropFactory } from '../render/props.js';
 import { Particles } from '../render/effects.js';
-import { Stage } from '../render/scene.js';
+import { Stage, detectQuality } from '../render/scene.js';
 import { World } from './rows.js';
 import { Player } from './player.js';
 import { GameCamera } from './camera.js';
@@ -146,7 +146,10 @@ export class Game {
     this.audio.setMusicEnabled(settings.music !== false);
     this.stage.setShadows(settings.shadows !== false);
     this.camera.enabled = settings.cameraShake !== false;
-    if (settings.quality && settings.quality !== 'auto') this.stage.setQuality(settings.quality);
+    // 'auto' hands control back to the frame-rate watcher in main.js, which
+    // starts from the device's own capability estimate.
+    const quality = settings.quality || 'auto';
+    this.stage.setQuality(quality === 'auto' ? detectQuality() : quality);
     this._reducedMotion = !!settings.reducedMotion;
   }
 

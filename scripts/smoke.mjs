@@ -500,6 +500,16 @@ async function main() {
   });
   await settle(page, 'gameover');
   await page.screenshot({ path: join(SHOT_DIR, '08-gameover.png') });
+
+  // The board is populated by now; capture the real thing, not the empty state.
+  await page.evaluate(() => window.__crossy.ui.show('leaderboard'));
+  await settle(page, 'leaderboard');
+  await page.screenshot({ path: join(SHOT_DIR, '03b-leaderboard-full.png') });
+  const rows = await page.evaluate(
+    () => document.querySelectorAll('[data-screen="leaderboard"] tbody tr').length,
+  );
+  if (rows === 0) problems.push('the leaderboard renders no rows despite completed runs');
+  log(`  leaderboard rows: ${rows}`);
   log('  game over:', JSON.stringify(over));
   if (over.stateAtDeath !== 'dead') problems.push(`die() left state at ${over.stateAtDeath}`);
   if (over.current !== 'gameover') {

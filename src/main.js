@@ -245,7 +245,36 @@ function boot() {
    * Lifecycle
    * ---------------------------------------------------------------- */
 
+  /**
+   * Adaptive quality. With the graphics setting on "auto" the game watches its
+   * own frame rate and steps down a rung after a sustained dip, so a weak GPU
+   * degrades gracefully instead of stuttering. It only ever steps down: an
+   * automatic step back up would oscillate at the boundary.
+   */
+  const QUALITY_LADDER = ['high', 'medium', 'low'];
+  let slowSamples = 0;
+  function watchFrameRate({ fps }) {
+    if ((profile.settings.quality || 'auto') !== 'auto') return;
+    if (game.state !== STATE.PLAYING) {
+      slowSamples = 0;
+      return;
+    }
+    if (fps >= 45) {
+      slowSamples = Math.max(0, slowSamples - 1);
+      return;
+    }
+    if (++slowSamples < 8) return; // ~4 s of sustained slowdown
+    slowSamples = 0;
+
+    const rung = QUALITY_LADDER.indexOf(game.stage.quality);
+    if (rung < 0 || rung >= QUALITY_LADDER.length - 1) return;
+    game.stage.setQuality(QUALITY_LADDER[rung + 1]);
+    resize();
+    ui.toast('Lowered graphics quality to keep things smooth.', 'info');
+  }
+
   const loop = new GameLoop({
+    onStats: watchFrameRate,
     fixedUpdate: (dt) => {
       input.update(dt);
       game.fixedUpdate(dt);
