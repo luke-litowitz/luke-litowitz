@@ -22,9 +22,9 @@ Open `http://localhost:8080/` and press **Play**.
 Individual checks:
 
 ```bash
-npm test           # 83 tests: physics, world generation, persistence, power-ups
+npm test           # 89 tests: physics, world generation, persistence, power-ups
 npm run check      # parse every source file and resolve every import
-npm run smoke      # boot the real game in Chromium and soak the simulation
+npm run smoke      # boot the real game in Chromium and soak 100k simulation steps
 ```
 
 ---
@@ -56,8 +56,9 @@ npm run smoke      # boot the real game in Chromium and soak the simulation
   warning followed by a grab. Real forward progress calls it off.
 
 **Progression**
-- Coins on the field, milestone bonuses every 50 rows, and a pity timer so a
-  dry spell can't last forever.
+- Coins on the field with a gentle pull toward you, milestone bonuses every 25
+  rows, a distance bonus at the end of a run, and a pity timer so a dry spell
+  can't last forever. A decent run is worth about 25 coins.
 - **16 characters** across four rarities, from a free Chicken up to a
   legendary Phoenix, several with small passive perks.
 - **5 power-ups** — magnet, shield, coin doubler, slow-motion and a jetpack.
@@ -111,10 +112,16 @@ slide you off the log you're standing on.
    flood fill against the previous row's reachable set. A layout that would seal
    the player into a pocket is re-rolled, and an empty row is the fallback.
 2. *Temporal solvability.* Traffic, logs and trains are laid out on a wrapping
-   cycle whose length equals the full travel span, with gap sizes derived from
+   cycle centred on the playfield, with gap sizes derived from
    `minSafeGap(speed, difficulty)` — the clear window a player standing in the
-   lane is guaranteed. Adjacent river rows are also forced to differ in velocity,
-   so a rider always drifts into a landing opportunity instead of being stranded.
+   lane is guaranteed. A rail cycle is additionally sized so a train is fully
+   off-screen when it re-enters and still has its whole warning time to run.
+   Adjacent river rows are forced to differ in velocity, so a rider always
+   drifts into a landing opportunity instead of being stranded.
+
+Both are enforced by tests over thousands of generated rows across many seeds,
+not by playtesting — including one that reproduces a soft-lock the first
+version shipped with.
 
 ---
 
@@ -131,8 +138,8 @@ src/
   game/       worldgen, rows, player, camera, powerups, eagle, config, game
   main.js     bootstrap and wiring
 test/         node:test suites for the pure logic
-scripts/      static server, import/syntax checker
-docs/         architecture and module contracts
+scripts/      static server, import checker, headless browser harness
+docs/         architecture, module contracts, screenshots
 ```
 
 Everything visual is a *voxel spec* — plain data describing coloured boxes —
