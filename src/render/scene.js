@@ -128,7 +128,12 @@ export class Stage {
   }
 
   _buildClouds(count) {
-    for (const c of this.clouds) c.removeFromParent();
+    // Geometry is per-cloud and not shared, so dropping the references without
+    // disposing would leak both heap and VRAM every time quality changes.
+    for (const c of this.clouds) {
+      c.traverse((o) => o.geometry?.dispose());
+      c.removeFromParent();
+    }
     this.clouds.length = 0;
     for (let i = 0; i < count; i++) {
       const mesh = buildVoxelModel(cloudSpec(i * 37 + 5), { castShadow: false });
@@ -238,6 +243,23 @@ export class Stage {
     const dpr = Math.min(window.devicePixelRatio || 1, this._dprCap);
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(width, height, false);
+    this._watchPixelRatio();
+  }
+
+  /**
+   * devicePixelRatio changes without a resize event when a window is dragged
+   * between monitors or the page is zoomed. Re-arm a one-shot media query
+   * against the current ratio so the canvas is re-scaled when it moves.
+   * @private
+   */
+  _watchPixelRatio() {
+    if (typeof matchMedia !== 'function') return;
+    this._dprQuery?.removeEventListener?.('change', this._onDprChange);
+    const dpr = window.devicePixelRatio || 1;
+    this._onDprChange =
+      this._onDprChange || (() => this.resize(this.width, this.height));
+    this._dprQuery = matchMedia(`(resolution: ${dpr}dppx)`);
+    this._dprQuery.addEventListener?.('change', this._onDprChange, { once: true });
   }
 
   render(camera) {
@@ -245,6 +267,9 @@ export class Stage {
   }
 
   dispose() {
+    this._dprQuery?.removeEventListener?.('change', this._onDprChange);
+    for (const c of this.clouds) c.traverse((o) => o.geometry?.dispose());
+    this.clouds.length = 0;
     this._skyTex?.dispose();
     this.renderer.dispose();
   }

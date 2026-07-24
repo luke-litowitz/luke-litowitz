@@ -459,24 +459,88 @@ async function main() {
   if (settings.afterUnrelatedChange) problems.push('changing an unrelated setting turned shadows back on');
   if (!settings.restored) problems.push('re-enabling shadows did not take effect');
 
+  /* --- Adaptive quality survives an unrelated settings change -------- */
+  const adaptive = await page.evaluate(() => {
+    const g = window.__crossy.game;
+    const p = window.__crossy.profile;
+    p.settings.quality = 'auto';
+    g.applySettings(p.settings);
+    g.setAutoQuality('low');
+    const afterStepDown = g.stage.quality;
+    p.settings.sfx = false;
+    g.applySettings(p.settings);
+    const afterUnrelated = g.stage.quality;
+    p.settings.sfx = true;
+    g.applySettings(p.settings);
+    return { afterStepDown, afterUnrelated };
+  });
+  log('  adaptive quality:', JSON.stringify(adaptive));
+  if (adaptive.afterStepDown !== 'low') problems.push('the quality ladder did not step down');
+  if (adaptive.afterUnrelated !== 'low') {
+    problems.push(`an unrelated setting reset quality to ${adaptive.afterUnrelated}`);
+  }
+
+  /* --- Quality changes must not leak cloud geometry ------------------ */
+  const leak = await page.evaluate(() => {
+    const g = window.__crossy.game;
+    const count = () => {
+      let n = 0;
+      g.stage.scene.traverse((o) => {
+        if (o.isMesh) n++;
+      });
+      return n;
+    };
+    const before = count();
+    for (let i = 0; i < 12; i++) g.stage.setQuality(i % 2 ? 'high' : 'low');
+    g.setAutoQuality('medium');
+    return { before, after: count() };
+  });
+  log('  quality churn meshes:', JSON.stringify(leak));
+  if (leak.after > leak.before + 12) {
+    problems.push(`repeated quality changes leaked meshes: ${leak.before} -> ${leak.after}`);
+  }
+
   /* --- Quitting mid-run banks its coins ------------------------------ */
   const quit = await page.evaluate(() => {
     const g = window.__crossy.game;
-    const before = window.__crossy.profile.coins;
-    g.start();
     const stats = { forward: 0, side: 0, waterWait: 0, laneWait: 0, flee: 0, stuck: 0 };
-    for (let i = 0; i < 4000 && g.state === 'playing'; i++) {
-      if (i % 12 === 0) window.__bot(stats);
-      g.fixedUpdate(1 / 120);
+
+    // Get a run worth banking: far enough for a distance bonus and still
+    // alive, retrying if the bot dies early. A four-row run correctly pays
+    // nothing, which would prove nothing either way.
+    let attempts = 0;
+    let ok = false;
+    while (attempts++ < 12 && !ok) {
+      g.start();
+      for (let i = 0; i < 12000 && g.state === 'playing'; i++) {
+        if (i % 12 === 0) window.__bot(stats);
+        g.fixedUpdate(1 / 120);
+        if (g.score >= 30) break;
+      }
+      ok = g.state === 'playing' && g.score >= 30;
     }
+    if (!ok) return { reached: false };
+
+    const before = window.__crossy.profile.coins;
     const runCoins = g.coins;
     const runScore = g.score;
+    const boardBefore = window.__crossy.profile.leaderboard.length;
     g.pause();
     g.toMenu();
-    return { before, runCoins, runScore, after: window.__crossy.profile.coins };
+    return {
+      reached: true,
+      before,
+      runCoins,
+      runScore,
+      after: window.__crossy.profile.coins,
+      banked: g.state === 'menu',
+      boardGrew: window.__crossy.profile.leaderboard.length >= boardBefore,
+    };
   });
   log('  quit:', JSON.stringify(quit));
-  if (quit.runScore > 0 && quit.after <= quit.before) {
+  if (!quit.reached) {
+    problems.push('could not reach a bankable run to test quitting');
+  } else if (quit.after <= quit.before) {
     problems.push(`quitting mid-run forfeited ${quit.runCoins} coins and ${quit.runScore} rows`);
   }
 

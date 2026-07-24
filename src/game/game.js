@@ -111,6 +111,13 @@ export class Game {
       if (dist < 9) this.audio.play('train-horn', { gain: clamp(1 - dist / 12, 0.15, 1) });
     };
 
+    /**
+     * The quality the "auto" setting currently resolves to. It starts as the
+     * device estimate and the frame-rate watcher walks it down; keeping it
+     * here means an unrelated settings change cannot silently undo that.
+     */
+    this._autoQuality = detectQuality();
+
     this.applyCharacter(profile.selected);
     this.applySettings(profile.settings);
     this.enterMenu();
@@ -153,7 +160,7 @@ export class Game {
     // applying it after the toggle would silently turn shadows back on every
     // time any other setting changed.
     const quality = settings.quality || 'auto';
-    this.stage.setQuality(quality === 'auto' ? detectQuality() : quality);
+    this.stage.setQuality(quality === 'auto' ? this._autoQuality : quality);
     this.stage.setShadows(settings.shadows !== false);
 
     this._reducedMotion = !!settings.reducedMotion;
@@ -236,10 +243,23 @@ export class Game {
   }
 
   toMenu() {
+    // Stop the sequencer before waking the context, or a bar that was already
+    // scheduled plays over the menu.
+    this.audio.stopMusic();
     this.audio.resume();
     this.abandonRun();
-    this.audio.stopMusic();
     this.enterMenu();
+  }
+
+  /**
+   * Step the automatic quality setting down one rung.
+   * @param {string} quality
+   */
+  setAutoQuality(quality) {
+    this._autoQuality = quality;
+    if ((this.profile.settings?.quality || 'auto') !== 'auto') return;
+    this.stage.setQuality(quality);
+    this.stage.setShadows(this.profile.settings?.shadows !== false);
   }
 
   /**

@@ -270,18 +270,19 @@ function boot() {
 
     const rung = QUALITY_LADDER.indexOf(game.stage.quality);
     if (rung < 0 || rung >= QUALITY_LADDER.length - 1) return;
-    game.stage.setQuality(QUALITY_LADDER[rung + 1]);
+    game.setAutoQuality(QUALITY_LADDER[rung + 1]);
     resize();
     ui.toast('Lowered graphics quality to keep things smooth.', 'info');
   }
 
   const loop = new GameLoop({
     onStats: watchFrameRate,
-    fixedUpdate: (dt) => {
-      input.update(dt);
-      game.fixedUpdate(dt);
-    },
+    fixedUpdate: (dt) => game.fixedUpdate(dt),
     render: (alpha, frameDt) => {
+      // Gamepad polling belongs on the render frame with real elapsed time:
+      // driving it from the fixed step would poll twice per frame and tie the
+      // stick's auto-repeat to simulation time rather than the wall clock.
+      input.update(frameDt);
       game.render(alpha, frameDt);
       syncPreview(ui.current);
     },
