@@ -133,11 +133,6 @@ function boot() {
         preview?.setCharacter(payload);
         break;
 
-      case 'back':
-        if (game.state === STATE.PAUSED) game.resume();
-        else ui.show('menu');
-        break;
-
       default:
         break;
     }
@@ -199,7 +194,18 @@ function boot() {
     if (game.state === STATE.PLAYING) game.handleMove(dir);
   });
 
+  /**
+   * Whether a game-level key should act at all.
+   *
+   * `ui.current === null` means gameplay has the keyboard. Any other screen
+   * owns it — including Settings opened *from* the pause menu, where an
+   * unguarded P or R would resume or destroy the run from behind the modal.
+   * The pause screen itself is the one modal that still answers to P.
+   */
+  const gameKeysLive = () => ui.current === null || ui.current === 'paused';
+
   input.on('pause', () => {
+    if (!gameKeysLive()) return;
     if (game.state === STATE.PLAYING) game.pause();
     else if (game.state === STATE.PAUSED) game.resume();
   });
@@ -209,18 +215,14 @@ function boot() {
     if (game.state === STATE.MENU && ui.current === 'menu') onAction('start');
   });
 
-  input.on('back', () => {
-    if (game.state === STATE.PAUSED) return game.resume();
-    if (ui.current === 'gameover') return onAction('home');
-    if (ui.current && ui.current !== 'menu' && game.state === STATE.MENU) {
-      ui.show('menu');
-      syncPreview('menu');
-    }
-  });
-
   input.on('restart', () => {
+    if (!gameKeysLive()) return;
     if (game.state === STATE.PLAYING || game.state === STATE.PAUSED) game.restart();
   });
+
+  // 'back' is deliberately not handled here. The UI traps Escape itself and
+  // reports the resulting navigation through onAction ('open' / 'resume' /
+  // 'home'), which already knows where each screen should return to.
 
   // The very first interaction anywhere unlocks audio.
   const unlockOnce = () => audio.unlock();

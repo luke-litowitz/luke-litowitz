@@ -79,8 +79,10 @@ export class Eagle {
    * @param {object} ctx { onWarn, onStrike, graceBonus }
    */
   fixedUpdate(dt, player, ctx) {
-    if (!player.alive) {
-      if (this.state !== STATE.CARRYING) this.state = STATE.IDLE;
+    // A dead player calls off a stalking eagle — but not one already carrying
+    // them away, which still has to fly off screen and clean itself up.
+    if (!player.alive && this.state !== STATE.CARRYING) {
+      if (this.state !== STATE.IDLE) this.reset();
       return;
     }
 

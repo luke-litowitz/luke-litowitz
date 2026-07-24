@@ -77,6 +77,8 @@ export class Game {
     this.elapsed = 0;
     this.deathTimer = 0;
     this.nextMilestone = MILESTONE_EVERY;
+    this._runBanked = true; // no run in progress yet
+    this._lastRun = null;
     this.biome = biomeForScore(0);
 
     this.characterModel = null;
@@ -145,12 +147,15 @@ export class Game {
   applySettings(settings = {}) {
     this.audio.setSfxEnabled(settings.sfx !== false);
     this.audio.setMusicEnabled(settings.music !== false);
-    this.stage.setShadows(settings.shadows !== false);
     this.camera.enabled = settings.cameraShake !== false;
-    // 'auto' hands control back to the frame-rate watcher in main.js, which
-    // starts from the device's own capability estimate.
+
+    // Quality first: a quality preset carries its own shadow policy, so
+    // applying it after the toggle would silently turn shadows back on every
+    // time any other setting changed.
     const quality = settings.quality || 'auto';
     this.stage.setQuality(quality === 'auto' ? detectQuality() : quality);
+    this.stage.setShadows(settings.shadows !== false);
+
     this._reducedMotion = !!settings.reducedMotion;
   }
 
@@ -198,6 +203,7 @@ export class Game {
     // A starting shield is a legendary perk, granted before the first hop.
     if (this.character?.perk?.id === 'startShield') this.powerups.activate('shield');
 
+    this._runBanked = false;
     this.world.ensure(0, 0);
     this._hudState.score = -1;
     this._hudState.coins = -1;
@@ -225,13 +231,30 @@ export class Game {
 
   restart() {
     this.audio.resume();
+    this.abandonRun();
     this.start();
   }
 
   toMenu() {
     this.audio.resume();
+    this.abandonRun();
     this.audio.stopMusic();
     this.enterMenu();
+  }
+
+  /**
+   * Bank a run the player walked away from.
+   *
+   * Quitting or restarting mid-run used to throw away every coin collected,
+   * which is a nasty surprise for a currency the whole shop depends on. The
+   * run is recorded exactly as a death would record it, minus the game-over
+   * screen and the death statistic.
+   */
+  abandonRun() {
+    if (this._runBanked) return;
+    if (this.score <= 0 && this.coins <= 0) return;
+    const earned = this._bankRun(null);
+    if (earned > 0) this.ui?.toast(`Banked ${earned} coins from that run.`, 'info');
   }
 
   /* ================================================================ *
@@ -298,6 +321,21 @@ export class Game {
 
   _finishRun() {
     const cause = this.player.deathCause || 'void';
+    // Normally the death delay is the first thing to record this run. If it
+    // was already banked (the run was abandoned mid-animation) reuse those
+    // numbers rather than paying out twice or showing a blank panel.
+    const result = this._runBanked ? this._lastRun : null;
+    if (result) this._showGameOver(cause, result);
+    else this._bankRun(cause);
+  }
+
+  /**
+   * Record a finished run: pay out coins, update stats and the leaderboard.
+   * @param {string|null} cause death cause, or null when the player quit
+   * @returns {number} coins credited
+   */
+  _bankRun(cause) {
+    this._runBanked = true;
     const score = this.score;
 
     const perk = this.character?.perk;
@@ -309,7 +347,7 @@ export class Game {
 
     addCoins(this.profile, earned);
     const stats = this.profile.stats?.deaths;
-    if (stats && cause in stats) stats[cause]++;
+    if (cause && stats && cause in stats) stats[cause]++;
 
     const result = submitScore(this.profile, {
       score,
@@ -319,19 +357,28 @@ export class Game {
     });
     saveProfile(this.profile);
 
+    this._lastRun = { score, earned, rank: result.rank, isBest: result.isBest };
+    if (!cause) return earned; // quit: no game-over screen, no fanfare
+
+    this._showGameOver(cause, this._lastRun);
+    return earned;
+  }
+
+  /** @param {string} cause @param {{score:number, earned:number, rank:number|null, isBest:boolean}} run */
+  _showGameOver(cause, run) {
     this.audio.stopMusic();
     this.ui?.setGameOver({
-      score,
+      score: run.score,
       best: this.profile.bestScore,
-      coins: earned,
-      rank: result.rank,
-      isBest: result.isBest,
+      coins: run.earned,
+      rank: run.rank,
+      isBest: run.isBest,
       cause,
       character: this.character.name,
     });
     this.ui?.show('gameover');
     this.ui?.hide('hud');
-    if (result.isBest) this.audio.play('milestone');
+    if (run.isBest) this.audio.play('milestone');
   }
 
   /* ================================================================ *
@@ -473,9 +520,17 @@ export class Game {
       }
     }
 
+    // The eagle finishes carrying the player off even after the run has been
+    // recorded, so it does not freeze mid-air behind the game-over panel.
+    if (!playing && this.state !== STATE.DEAD && this.eagle.active) {
+      this.eagle.fixedUpdate(sdt, this.player, this._eagleCtx);
+    }
+
     this.world.ensure(this.player.rowF, this.score);
 
-    this.world.forEachNewWarning(this._onTrainWarning);
+    // Horns only while a run is live — a crossing bell over the main menu is
+    // just a noise with no subject.
+    if (playing) this.world.forEachNewWarning(this._onTrainWarning);
   }
 
   _updateScore() {

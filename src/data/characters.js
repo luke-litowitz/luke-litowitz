@@ -395,8 +395,10 @@ function buildCat() {
         boxes: [
           bx(-0.09, 0.05, 0, 0.09, 0.11, 0.05, GREY),
           bx(0.09, 0.05, 0, 0.09, 0.11, 0.05, GREY),
-          bx(-0.09, 0.03, -0.02, 0.05, 0.06, 0.03, INNER),
-          bx(0.09, 0.03, -0.02, 0.05, 0.06, 0.03, INNER),
+          // Inner ear must sit in the tip that clears the skull (head top is
+          // y 0.64); any lower and it is swallowed whole by the head box.
+          bx(-0.09, 0.075, -0.02, 0.05, 0.06, 0.03, INNER),
+          bx(0.09, 0.075, -0.02, 0.05, 0.06, 0.03, INNER),
         ],
       },
       {
@@ -556,8 +558,9 @@ function buildRobot() {
           bx(0, 0.315, 0.03, 0.07, 0.07, 0.07, BOLT), // antenna bulb
         ],
       },
+      // Shin height 0.25 so its top meets the chassis floor at y = 0.28.
       ...mirrorPair('legL', 'legR', [0.11, 0.28, 0], [
-        bx(0, -0.13, 0, 0.1, 0.24, 0.1, DARK),
+        bx(0, -0.125, 0, 0.1, 0.25, 0.1, DARK),
         bx(0, -0.255, -0.03, 0.14, 0.05, 0.18, STEEL),
       ]),
     ],
@@ -653,7 +656,7 @@ function buildNinja() {
         pivot: [0, 0.74, 0.1],
         boxes: [
           bx(0.05, -0.02, 0.06, 0.03, 0.03, 0.14, BAND),
-          bx(0.1, -0.08, 0.13, 0.03, 0.03, 0.12, BAND),
+          bx(0.07, -0.045, 0.15, 0.04, 0.04, 0.13, BAND), // overlaps the first tie segment
         ],
       },
       {
@@ -704,10 +707,12 @@ function buildDino() {
       {
         name: 'accessory',
         pivot: [0, 0.3, 0],
+        // The skull occupies z -0.23..0.03, so the plate row starts behind it
+        // (z >= 0.035) and tapers down the spine toward the tail.
         boxes: [
-          bx(0, 0.33, -0.1, 0.05, 0.11, 0.08, PLATE),
-          bx(0, 0.35, 0, 0.05, 0.13, 0.08, PLATE),
-          bx(0, 0.32, 0.1, 0.05, 0.1, 0.08, PLATE),
+          bx(0, 0.32, 0.07, 0.05, 0.13, 0.07, PLATE),
+          bx(0, 0.3, 0.135, 0.05, 0.11, 0.07, PLATE),
+          bx(0, 0.27, 0.19, 0.05, 0.08, 0.06, PLATE),
         ],
       },
       {
@@ -747,9 +752,11 @@ function buildDragon() {
           bx(0, 0.06, -0.1, 0.22, 0.14, 0.18, BELLY),
         ],
       },
+      // Both membrane panels must overlap in X — the inner one has to reach
+      // back to the torso side (|x| = 0.15) or the wings hang in mid-air.
       ...mirrorPair('wingL', 'wingR', [0.16, 0.42, 0.06], [
-        bx(0.08, 0.12, 0, 0.04, 0.3, 0.2, MEMB),
-        bx(0.16, 0.2, 0.02, 0.04, 0.2, 0.14, MEMB),
+        bx(0.02, 0.12, 0, 0.12, 0.3, 0.2, MEMB),
+        bx(0.12, 0.2, 0.02, 0.12, 0.2, 0.14, MEMB),
       ]),
       {
         name: 'tail',
@@ -823,7 +830,7 @@ function buildYeti() {
           bx(0, 0.09, 0, 0.3, 0.22, 0.26, FUR),
           bx(0, 0.06, -0.12, 0.22, 0.16, 0.06, FACE),
           bx(0, 0.16, -0.12, 0.26, 0.05, 0.07, FUR2), // heavy brow
-          bx(0, 0, -0.12, 0.14, 0.04, 0.05, MOUTH),
+          bx(0, 0, -0.155, 0.14, 0.04, 0.05, MOUTH), // must clear the face plate at z -0.15
           ...eyes(0.07, 0.09, -0.15),
         ],
       },
@@ -852,15 +859,17 @@ function buildPhoenix() {
           bx(0, 0.1, -0.13, 0.24, 0.2, 0.08, FIRE2),
         ],
       },
-      ...mirrorPair('wingL', 'wingR', [0.19, 0.4, 0.02], [bx(0.03, 0.02, 0, 0.05, 0.26, 0.22, FIRE2)]),
+      // Wing root reaches back to the torso side (|x| = 0.17) so it is attached.
+      ...mirrorPair('wingL', 'wingR', [0.19, 0.4, 0.02], [bx(0, 0.02, 0, 0.09, 0.26, 0.22, FIRE2)]),
       {
         name: 'tail',
         material: 'glow',
         pivot: [0, 0.34, 0.17],
         boxes: [
           bx(0, 0.02, 0.08, 0.1, 0.08, 0.16, PALETTE.coin),
-          bx(-0.09, 0.1, 0.13, 0.07, 0.07, 0.16, PALETTE.jetpack),
-          bx(0.09, 0.1, 0.13, 0.07, 0.07, 0.16, PALETTE.jetpack),
+          // Outer feathers overlap the centre feather in both x and y.
+          bx(-0.085, 0.08, 0.13, 0.08, 0.07, 0.16, PALETTE.jetpack),
+          bx(0.085, 0.08, 0.13, 0.08, 0.07, 0.16, PALETTE.jetpack),
         ],
       },
       {
@@ -869,7 +878,8 @@ function buildPhoenix() {
         pivot: [0, 0.52, -0.01],
         boxes: [
           bx(0, 0.26, 0.03, 0.05, 0.14, 0.06, PALETTE.coin),
-          bx(0, 0.32, -0.04, 0.05, 0.1, 0.06, PALETTE.jetpack),
+          // Centre plume is deep enough to bridge the front and rear plumes.
+          bx(0, 0.32, -0.04, 0.05, 0.1, 0.09, PALETTE.jetpack),
           bx(0, 0.22, -0.1, 0.05, 0.09, 0.05, PALETTE.coin),
         ],
       },
@@ -882,8 +892,9 @@ function buildPhoenix() {
           ...eyes(0.07, 0.14, -0.1),
         ],
       },
+      // Shank height 0.21 so its top meets the body underside at y = 0.21.
       ...mirrorPair('legL', 'legR', [0.1, 0.2, 0], [
-        bx(0, -0.1, 0, 0.06, 0.2, 0.06, TALON),
+        bx(0, -0.095, 0, 0.06, 0.21, 0.06, TALON),
         bx(0, -0.185, -0.05, 0.1, 0.03, 0.14, '#c9821f'),
       ]),
     ],

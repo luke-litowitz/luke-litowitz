@@ -435,6 +435,51 @@ async function main() {
   if (deep.coinsSeen === 0) problems.push('no coins were generated in 300+ rows');
   if (deep.railRowsSeen === 0) problems.push('no rail rows were generated in 300+ rows');
 
+  /* --- Settings do not fight each other ------------------------------ */
+  const settings = await page.evaluate(() => {
+    const g = window.__crossy.game;
+    const p = window.__crossy.profile;
+    p.settings.quality = 'high';
+    p.settings.shadows = false;
+    g.applySettings(p.settings);
+    const afterQualityThenShadows = g.stage.renderer.shadowMap.enabled;
+
+    // Changing an unrelated setting must not resurrect shadows.
+    p.settings.cameraShake = false;
+    g.applySettings(p.settings);
+    const afterUnrelatedChange = g.stage.renderer.shadowMap.enabled;
+
+    p.settings.shadows = true;
+    p.settings.quality = 'auto';
+    g.applySettings(p.settings);
+    return { afterQualityThenShadows, afterUnrelatedChange, restored: g.stage.renderer.shadowMap.enabled };
+  });
+  log('  settings:', JSON.stringify(settings));
+  if (settings.afterQualityThenShadows) problems.push('the Shadows toggle was overridden by the quality preset');
+  if (settings.afterUnrelatedChange) problems.push('changing an unrelated setting turned shadows back on');
+  if (!settings.restored) problems.push('re-enabling shadows did not take effect');
+
+  /* --- Quitting mid-run banks its coins ------------------------------ */
+  const quit = await page.evaluate(() => {
+    const g = window.__crossy.game;
+    const before = window.__crossy.profile.coins;
+    g.start();
+    const stats = { forward: 0, side: 0, waterWait: 0, laneWait: 0, flee: 0, stuck: 0 };
+    for (let i = 0; i < 4000 && g.state === 'playing'; i++) {
+      if (i % 12 === 0) window.__bot(stats);
+      g.fixedUpdate(1 / 120);
+    }
+    const runCoins = g.coins;
+    const runScore = g.score;
+    g.pause();
+    g.toMenu();
+    return { before, runCoins, runScore, after: window.__crossy.profile.coins };
+  });
+  log('  quit:', JSON.stringify(quit));
+  if (quit.runScore > 0 && quit.after <= quit.before) {
+    problems.push(`quitting mid-run forfeited ${quit.runCoins} coins and ${quit.runScore} rows`);
+  }
+
   /* --- Every biome actually applies --------------------------------
    * Driving a bot far enough to see Frostline would be testing the bot, not
    * the game. Walk the score through each threshold instead and assert the
@@ -538,14 +583,23 @@ async function main() {
       if (g.eagle.active) warned = true;
       if (!g.player.alive) break;
     }
+    // The carry-off must keep running past the death delay, through the
+    // game-over hand-off, and clean itself up.
+    for (let i = 0; i < 600; i++) g.fixedUpdate(DT);
+    const carryFinished = !g.eagle.active;
+
     return {
       warned,
       alive: g.player.alive,
       cause: g.player.deathCause,
       idle: +g.player.idleTime.toFixed(1),
+      carryFinished,
     };
   });
   log('  eagle:', JSON.stringify(eagle));
+  if (eagle.carryFinished === false) {
+    problems.push('the eagle froze mid-air instead of carrying the player off');
+  }
   if (!eagle.warned) problems.push('the eagle never warned while the player idled');
   if (eagle.cause !== 'eagle') {
     problems.push(`idling did not end in an eagle grab (got ${eagle.cause})`);
