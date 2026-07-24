@@ -227,6 +227,67 @@ test('landing on solid ground snaps back to the tile grid', () => {
   assert.equal(p.carrier, null);
 });
 
+test('the player stands on a platform’s deck, not inside it', () => {
+  const log = { x: 0, prevX: 0, halfLen: 2, surfaceY: 0.16 };
+  const world = makeWorld({ 1: { type: 'water', velocity: 1, platforms: [log] } });
+  const p = new Player();
+  const ctx = makeCtx(world, {});
+
+  p.requestMove('up');
+  run(p, ctx, HOP_DURATION + FIXED_DT * 2);
+
+  assert.equal(p.carrier, log);
+  assert.ok(
+    Math.abs(p.y - 0.16) < 1e-9,
+    `should rest on the log deck at 0.16, got ${p.y}`,
+  );
+  assert.equal(p.baseY, 0.16);
+});
+
+test('hopping from a log back to land returns to ground level', () => {
+  const log = { x: 0, prevX: 0, halfLen: 2, surfaceY: 0.16 };
+  const world = makeWorld({
+    0: { type: 'water', velocity: 1, platforms: [log] },
+    1: { type: 'grass' },
+  });
+  const p = new Player();
+  const ctx = makeCtx(world, {});
+  p.carrier = log;
+  p.carrierRow = 0;
+  p.baseY = 0.16;
+  p.y = 0.16;
+
+  p.requestMove('up');
+  run(p, ctx, HOP_DURATION + FIXED_DT * 2);
+
+  assert.equal(p.gridRow, 1);
+  assert.equal(p.y, 0);
+  assert.equal(p.baseY, 0);
+});
+
+test('the hop arc clears the deck it takes off from', () => {
+  const log = { x: 0, prevX: 0, halfLen: 3, surfaceY: 0.16 };
+  const world = makeWorld({
+    0: { type: 'water', velocity: 0, platforms: [log] },
+    1: { type: 'water', velocity: 2, platforms: [log] },
+  });
+  const p = new Player();
+  const ctx = makeCtx(world, {});
+  p.carrier = log;
+  p.carrierRow = 0;
+  p.baseY = 0.16;
+  p.y = 0.16;
+
+  p.requestMove('up');
+  let low = Infinity;
+  const steps = Math.round(HOP_DURATION / FIXED_DT);
+  for (let i = 0; i < steps; i++) {
+    p.fixedUpdate(FIXED_DT, ctx);
+    low = Math.min(low, p.y);
+  }
+  assert.ok(low >= 0.16 - 1e-9, `dipped below the deck to ${low}`);
+});
+
 test('drifting past the playfield edge is a void death', () => {
   const log = { x: 0, prevX: 0, halfLen: 40 };
   const world = makeWorld({ 0: { type: 'water', velocity: 6, platforms: [log] } });

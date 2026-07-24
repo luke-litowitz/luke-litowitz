@@ -19,6 +19,11 @@ const execFileAsync = promisify(execFile);
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const ROOTS = ['src', 'scripts', 'test'];
+/**
+ * Files allowed to use bare specifiers. The game itself must not — it runs
+ * unbundled in a browser — but dev tooling resolves through node_modules.
+ */
+const TOOLING = new Set(['scripts/smoke.mjs']);
 const IMPORT_RE = /(?:^|[^.\w])(?:import|export)\s[^;]*?from\s*['"]([^'"]+)['"]/g;
 const BARE_IMPORT_RE = /(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
 const DYNAMIC_RE = /import\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -75,6 +80,7 @@ for (const root of ROOTS) {
     for (const spec of specifiers) {
       if (spec.startsWith('node:')) continue;
       if (!spec.startsWith('.') && !spec.startsWith('/')) {
+        if (TOOLING.has(relative(ROOT, file))) continue;
         fail(file, `bare import "${spec}" — the game must run without a bundler`);
         continue;
       }

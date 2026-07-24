@@ -79,6 +79,15 @@ function deepFreeze(obj) {
  */
 export const DEFAULT_PROFILE = deepFreeze(makeDefaultProfile());
 
+/** Top-level keys this build knows about; anything else is newer-build data. */
+const KNOWN_PROFILE_KEYS = new Set(Object.keys(DEFAULT_PROFILE));
+/**
+ * Never copied out of parsed JSON. `JSON.parse('{"__proto__":…}')` yields an
+ * own property, and assigning it back through `obj[key] = …` would reach the
+ * `Object.prototype` setter instead of defining a field.
+ */
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /* ------------------------------------------------------------------ *
  * safeStorage — feature-detected once, mirrored in memory
  * ------------------------------------------------------------------ */
@@ -120,7 +129,11 @@ const safeStorage = {
     if (backend && !staleKeys.has(key)) {
       try {
         const raw = backend.getItem(key);
-        if (raw !== null && raw !== undefined) return raw;
+        // A durable backend that never rejected a write for this key is
+        // authoritative *including when it says "absent"* — falling back to the
+        // memory mirror here would resurrect a profile the player (or another
+        // tab) deliberately cleared.
+        return raw === null || raw === undefined ? null : raw;
       } catch {
         backend = null; // Policy flipped mid-session; stop asking.
       }
@@ -221,7 +234,12 @@ let entrySeq = 0;
 
 function makeEntryId(score, stamp) {
   entrySeq += 1;
-  return `e${stamp.toString(36)}-${Math.max(0, Math.floor(score))}-${entrySeq}`;
+  // Zero-padded so the id sorts lexicographically in creation order — plain
+  // `${entrySeq}` puts "10" before "9", which inverts the oldest-first
+  // tie-break for two runs submitted in the same millisecond.
+  return `e${stamp.toString(36)}-${Math.max(0, Math.floor(score))}-${entrySeq
+    .toString(36)
+    .padStart(8, '0')}`;
 }
 
 /**
@@ -291,6 +309,12 @@ function migrate(raw) {
   const version = toNumber(src.version, SCHEMA_VERSION);
   out.version = version > SCHEMA_VERSION ? version : SCHEMA_VERSION;
 
+  // Top-level fields a newer build added ride along untouched; every known key
+  // below overwrites its passthrough copy with a validated value.
+  for (const key of Object.keys(src)) {
+    if (!KNOWN_PROFILE_KEYS.has(key) && !RESERVED_KEYS.has(key)) out[key] = src[key];
+  }
+
   out.name = toName(src.name, out.name);
   out.coins = toCount(src.coins, 0);
   out.bestScore = toCount(src.bestScore, 0);
@@ -318,11 +342,18 @@ function migrate(raw) {
   entrySeq += out.leaderboard.length;
 
   const stats = src.stats && typeof src.stats === 'object' ? src.stats : {};
+  // Stat groups a newer build added (streaks, jumps, …) survive a downgrade
+  // for the same reason unknown settings do.
+  for (const [key, value] of Object.entries(stats)) {
+    if (key !== 'deaths' && !RESERVED_KEYS.has(key)) out.stats[key] = value;
+  }
   const deaths = stats.deaths && typeof stats.deaths === 'object' ? stats.deaths : {};
   for (const cause of DEATH_CAUSES) out.stats.deaths[cause] = toCount(deaths[cause], 0);
   // Preserve death causes introduced by a newer build instead of dropping them.
   for (const [key, value] of Object.entries(deaths)) {
-    if (!DEATH_CAUSES.includes(key)) out.stats.deaths[key] = toCount(value, 0);
+    if (!DEATH_CAUSES.includes(key) && !RESERVED_KEYS.has(key)) {
+      out.stats.deaths[key] = toCount(value, 0);
+    }
   }
 
   const settings = src.settings && typeof src.settings === 'object' ? src.settings : {};
@@ -572,7 +603,10 @@ export function submitScore(profile, entry) {
 
   profile.bestScore = Math.max(previousBest, score);
   profile.totalRuns = toCount(profile.totalRuns, 0) + 1;
-  profile.totalCoins = toCount(profile.totalCoins, 0) + coins;
+  // `totalCoins` is accrued by `addCoins` as the run banks each coin, so the
+  // run total must NOT be added again here — that double-counted the lifetime
+  // stat on every run.
+  profile.totalCoins = toCount(profile.totalCoins, 0);
   // Distance defaults to the score: one point is one row crossed.
   profile.totalDistance = toAmount(profile.totalDistance, 0) + toAmount(src.distance, score);
 

@@ -8,7 +8,9 @@
     "start": "node scripts/serve.mjs",
     "dev": "node scripts/serve.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "npm run check && npm test && npm run smoke"
   },
   "keywords": [
     "game",

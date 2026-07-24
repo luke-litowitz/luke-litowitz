@@ -9,11 +9,23 @@ Three.js is vendored in `vendor/three/`.
 
 ```bash
 npm start          # serves the game at http://localhost:8080
-npm test           # physics, generation and persistence tests
-npm run check      # parse every source file + resolve every import
+npm run verify     # imports + tests + a headless browser run
 ```
 
 Open `http://localhost:8080/` and press **Play**.
+
+| | |
+|---|---|
+| ![Main menu](docs/screenshots/menu.png) | ![Gameplay](docs/screenshots/gameplay.png) |
+| ![Character select](docs/screenshots/characters.png) | ![Game over](docs/screenshots/gameover.png) |
+
+Individual checks:
+
+```bash
+npm test           # 83 tests: physics, world generation, persistence, power-ups
+npm run check      # parse every source file and resolve every import
+npm run smoke      # boot the real game in Chromium and soak the simulation
+```
 
 ---
 

@@ -96,6 +96,7 @@ export class Game {
     };
 
     this._hudState = { score: -1, best: -1, coins: -1 };
+    this._audioScale = 1;
     /** Reused probe for the swept collision query — no per-step allocation. */
     this._probe = { prevX: 0, prevZ: 0, x: 0, z: 0, halfW: 0, halfD: 0 };
     this._onPickupBound = (type, payload) => this._onPickup(type, payload);
@@ -419,6 +420,12 @@ export class Game {
     const playing = this.state === STATE.PLAYING;
     const scale = playing ? this.powerups.timeScale : 1;
     const sdt = dt * scale;
+
+    // Bend the soundtrack with the world so slow-motion reads in the ears too.
+    if (scale !== this._audioScale) {
+      this._audioScale = scale;
+      this.audio.setTimeScale(scale);
+    }
 
     this.world.fixedUpdate(sdt);
 

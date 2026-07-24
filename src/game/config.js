@@ -63,7 +63,9 @@ export function difficultyAt(score) {
 
     /* Water */
     logSpeed: [lerp(1.0, 1.9, t), lerp(1.9, 3.3, t)],
-    logCoverage: lerp(0.66, 0.47, t),
+    // Reachable ceiling is meanLogLength / (meanLogLength + LOG_GAP[0]);
+    // with 1-4 tile logs that is ~0.77, so these floors always have headroom.
+    logCoverage: lerp(0.62, 0.46, t),
     logLength: [1, Math.round(lerp(4, 3, t))],
     maxWaterRun: Math.round(lerp(2, 4, t)),
     lilyChance: lerp(0.3, 0.14, t),

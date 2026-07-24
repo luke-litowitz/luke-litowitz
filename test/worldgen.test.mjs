@@ -129,6 +129,54 @@ test('grass rows never seal the player into a pocket', () => {
   }
 });
 
+test('no reachable position is ever a dead end', () => {
+  // Stronger than "a path exists": from every tile the player could possibly
+  // be standing on, some forward move must be available after sliding within
+  // the run they are in. Otherwise a pocket can trap them.
+  const runsOf = (set) => {
+    const cols = [...set].sort((a, b) => a - b);
+    const runs = [];
+    let cur = null;
+    for (const c of cols) {
+      if (cur && c === cur.at(-1) + 1) cur.push(c);
+      else runs.push((cur = [c]));
+    }
+    return runs;
+  };
+
+  for (const seed of SEEDS) {
+    const gen = new WorldGenerator(seed);
+    let reachable = new Set(ALL_COLS);
+
+    for (let i = 0; i < ROWS; i++) {
+      const plan = gen.next(i);
+      if (plan.type !== 'grass') {
+        reachable = new Set(ALL_COLS);
+        continue;
+      }
+      const blocked = new Set(plan.obstacles.map((o) => o.col));
+      const free = new Set(ALL_COLS.filter((c) => !blocked.has(c)));
+
+      for (const run of runsOf(reachable)) {
+        const exits = run.filter((c) => free.has(c));
+        assert.ok(
+          exits.length > 0,
+          `seed ${seed} row ${plan.index}: a player anywhere in columns ` +
+            `[${run[0]}..${run.at(-1)}] has no forward move — that is a soft lock`,
+        );
+      }
+
+      const next = new Set();
+      for (const c of reachable) {
+        if (!free.has(c)) continue;
+        for (let k = c; k >= PLAY_COL_MIN && free.has(k); k--) next.add(k);
+        for (let k = c; k <= PLAY_COL_MAX && free.has(k); k++) next.add(k);
+      }
+      reachable = next;
+    }
+  }
+});
+
 test('every road lane leaves a survivable window', () => {
   for (const seed of SEEDS) {
     const gen = new WorldGenerator(seed);
@@ -169,7 +217,7 @@ test('water rows always carry enough platforms, with reachable gaps', () => {
 
       const diff = difficultyAt(Math.max(i, plan.index));
       assert.ok(
-        plan.cycle.coverage >= diff.logCoverage - 0.03,
+        plan.cycle.coverage >= diff.logCoverage - 1e-6,
         `seed ${seed} row ${plan.index}: coverage ${plan.cycle.coverage.toFixed(2)}`,
       );
 

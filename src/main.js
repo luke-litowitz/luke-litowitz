@@ -133,6 +133,11 @@ function boot() {
         preview?.setCharacter(payload);
         break;
 
+      case 'back':
+        if (game.state === STATE.PAUSED) game.resume();
+        else ui.show('menu');
+        break;
+
       default:
         break;
     }
@@ -167,8 +172,15 @@ function boot() {
     }
   }
 
+  /**
+   * The preview only renders while its screen is open. Driving it from the
+   * observed screen rather than from navigation actions means it can never
+   * get stuck running (or stuck blank) if a screen changes by another route.
+   */
+  let previewScreen = null;
   function syncPreview(screen) {
-    if (!preview) return;
+    if (!preview || screen === previewScreen) return;
+    previewScreen = screen;
     if (screen === 'characters') {
       preview.setCharacter(profile.selected);
       preview.start();
@@ -198,8 +210,9 @@ function boot() {
   });
 
   input.on('back', () => {
-    if (game.state === STATE.PAUSED) game.resume();
-    else if (ui.current && ui.current !== 'menu' && game.state === STATE.MENU) {
+    if (game.state === STATE.PAUSED) return game.resume();
+    if (ui.current === 'gameover') return onAction('home');
+    if (ui.current && ui.current !== 'menu' && game.state === STATE.MENU) {
       ui.show('menu');
       syncPreview('menu');
     }
@@ -237,7 +250,10 @@ function boot() {
       input.update(dt);
       game.fixedUpdate(dt);
     },
-    render: (alpha, frameDt) => game.render(alpha, frameDt),
+    render: (alpha, frameDt) => {
+      game.render(alpha, frameDt);
+      syncPreview(ui.current);
+    },
   });
 
   document.addEventListener('visibilitychange', () => {

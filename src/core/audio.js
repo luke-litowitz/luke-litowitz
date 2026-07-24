@@ -45,6 +45,14 @@ const MUSIC_LEVEL = 0.42;
 
 const noop = () => {};
 
+/**
+ * Coerce a caller-supplied option to a usable number. `Number.isFinite` does
+ * not coerce, so `null`, `undefined` and `NaN` all fall back — without this a
+ * single `NaN` gain poisons an envelope, the automation call throws, and the
+ * sound is silently dropped.
+ */
+const finite = (v, fallback) => (Number.isFinite(v) ? v : fallback);
+
 /** Equal-temperament MIDI note -> Hz. */
 const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -244,6 +252,13 @@ export class AudioManager {
       const kick = ctx.createBufferSource();
       kick.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
       kick.connect(this._master);
+      kick.onended = () => {
+        try {
+          kick.disconnect();
+        } catch {
+          /* Already torn down. */
+        }
+      };
       kick.start(0);
     } catch {
       /* Best effort only. */
@@ -341,10 +356,17 @@ export class AudioManager {
     this._syncMusic();
   }
 
-  /** Ask the context to run again; harmless when it already is. */
+  /**
+   * Ask the context to run again; harmless when it already is.
+   *
+   * A deliberate `suspend()` (pause, tab blur) outranks every opportunistic
+   * wake-up: only `resume()` clears `_suspended`, so a stray `play()` or a
+   * repeat `unlock()` from a menu click cannot un-pause the mix behind the
+   * game's back.
+   */
   _resumeContext() {
     const ctx = this._ctx;
-    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    if (!ctx || this._suspended || ctx.state === 'running' || ctx.state === 'closed') return;
     try {
       const p = ctx.resume();
       if (p && p.catch) p.catch(noop);
@@ -409,17 +431,27 @@ export class AudioManager {
   play(name, opts) {
     const ctx = this._ctx;
     if (!ctx || ctx.state === 'closed' || !this._sfxEnabled) return;
+    // Paused or backgrounded: stay silent. Scheduling against a frozen clock
+    // would queue every voice at the same instant and dump them all the
+    // moment the context resumes.
+    if (this._suspended) return;
+    // Wake first, cap second: if the counter is pinned because the browser
+    // auto-suspended us mid-flight, an early return here would leave the
+    // context asleep forever and the game permanently silent.
+    this._resumeContext();
     if (this._voices >= MAX_VOICES) return; // Drop, never glitch.
-    this._resumeContext(); // Unlocked but auto-suspended: wake on demand.
 
     const now = ctx.currentTime;
     const last = this._lastAt.get(name);
     if (last !== undefined && now - last < RETRIGGER_GAP) return;
+    // Keys are sound names, but `play()` accepts any string; keep the
+    // retrigger table from growing without bound if a caller invents names.
+    if (this._lastAt.size > 64) this._lastAt.clear();
     this._lastAt.set(name, now);
 
-    const rate = clamp((opts && opts.rate) || 1, 0.25, 4);
-    const vol = clamp(opts && opts.gain !== undefined ? opts.gain : 1, 0, 4);
-    const pan = opts && opts.pan ? clamp(opts.pan, -1, 1) : 0;
+    const rate = clamp(finite(opts && opts.rate, 1) || 1, 0.25, 4);
+    const vol = clamp(finite(opts && opts.gain, 1), 0, 4);
+    const pan = clamp(finite(opts && opts.pan, 0), -1, 1);
     const type = (opts && opts.type) || null;
 
     const group = this._beginGroup(pan);
@@ -1165,7 +1197,9 @@ export class AudioManager {
    * @param {string} [biomeId] one of the ids in palette.js BIOMES.
    */
   startMusic(biomeId = 'meadow') {
-    const id = MUSIC_THEMES[biomeId] ? biomeId : 'meadow';
+    // hasOwnProperty, not a truthiness test: `MUSIC_THEMES['constructor']` is
+    // inherited and truthy, and would install a "theme" with no bpm.
+    const id = Object.prototype.hasOwnProperty.call(MUSIC_THEMES, biomeId) ? biomeId : 'meadow';
     if (id !== this._music.biomeId || !this._music.wanted) {
       this._music.biomeId = id;
       this._theme = MUSIC_THEMES[id];
@@ -1225,9 +1259,11 @@ export class AudioManager {
 
   /** Seconds per sixteenth step, slowed by the time scale. */
   _stepDuration() {
-    const bpm = this._theme.bpm;
-    const scale = clamp(this._timeScale, 0.1, 2);
-    return clamp(60 / bpm / 4 / scale, 0.04, 2);
+    const bpm = this._theme && this._theme.bpm > 0 ? this._theme.bpm : 120;
+    const scale = clamp(finite(this._timeScale, 1), 0.1, 2) || 1;
+    // A non-finite step would poison `nextTime` and stall the sequencer for
+    // the rest of the session, so never let one escape.
+    return clamp(finite(60 / bpm / 4 / scale, 0.125), 0.04, 2);
   }
 
   /**
@@ -1240,8 +1276,10 @@ export class AudioManager {
     if (!ctx || !m.playing || ctx.state === 'closed') return;
 
     // A backgrounded tab freezes the timer while the audio clock runs on;
-    // resynchronise instead of frantically scheduling the missed bars.
-    if (m.nextTime < ctx.currentTime) m.nextTime = ctx.currentTime + 0.05;
+    // resynchronise instead of frantically scheduling the missed bars. The
+    // negated comparison also recovers a NaN cursor rather than looping
+    // forever on `NaN < limit === false`.
+    if (!(m.nextTime >= ctx.currentTime)) m.nextTime = ctx.currentTime + 0.05;
 
     const stepDur = this._stepDuration();
     const limit = ctx.currentTime + SCHEDULE_AHEAD;
@@ -1292,6 +1330,7 @@ export class AudioManager {
         peak: ghost ? 0.18 : 0.34,
         attack: 0.004,
       });
+      if (g.pending === 0) this._disposeGroup(g);
     }
 
     // Pad: one soft chord per bar, long attack and release.
@@ -1310,6 +1349,7 @@ export class AudioManager {
           hold: barDur * 0.4,
           release: barDur * 0.38,
         });
+        if (g.pending === 0) this._disposeGroup(g);
       }
     }
 
@@ -1327,6 +1367,7 @@ export class AudioManager {
         attack: 0.001,
         rate: 1.6,
       });
+      if (g.pending === 0) this._disposeGroup(g);
     }
 
     // Lead: sparse when calm, chattering when frantic. Chord tones land on
@@ -1347,6 +1388,7 @@ export class AudioManager {
         peak: 0.16,
         attack: 0.006,
       });
+      if (g.pending === 0) this._disposeGroup(g);
     }
   }
 }

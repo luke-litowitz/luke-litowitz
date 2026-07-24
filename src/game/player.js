@@ -55,6 +55,8 @@ export class Player {
     this.rowF = 0; // fractional row while hopping
     this.z = 0;
     this.y = 0;
+    /** Height of the surface underfoot: 0 on land, the deck of a log on water. */
+    this.baseY = 0;
 
     this.prevX = 0;
     this.prevZ = 0;
@@ -71,9 +73,10 @@ export class Player {
       duration: HOP_DURATION,
       fromX: 0,
       toX: 0,
+      fromY: 0,
+      toY: 0,
       fromRow: 0,
       toRow: 0,
-      blockedNudge: 0,
     };
 
     /** Platform item we are riding, or null. */
@@ -94,6 +97,7 @@ export class Player {
     this.idleTime = 0;
     this.hopCount = 0;
     this.bumpTimer = 0;
+    this._eagleDriftX = 0;
 
     /* Perk-derived values, refreshed by applyCharacter(). */
     this.hopSpeedMul = 1;
@@ -161,9 +165,9 @@ export class Player {
     // Auto-advance while the jetpack burns.
     if (this.flying && !this.hop.active) this._startHop('up', ctx, true);
 
-    // Settle back to the ground when the jetpack cuts out mid-stride.
-    if (!this.flying && !this.hop.active && this.y > 0) {
-      this.y = Math.max(0, this.y - dt * 6);
+    // Settle back onto the surface when the jetpack cuts out mid-stride.
+    if (!this.flying && !this.hop.active && this.y > this.baseY) {
+      this.y = Math.max(this.baseY, this.y - dt * 6);
     }
 
     this.z = rowToZ(this.rowF);
@@ -220,6 +224,7 @@ export class Player {
     }
 
     let toX;
+    let toY = 0;
     if (targetType === 'water') {
       const carrierV = this.carrier ? world.rowAt(this.carrierRow)?.velocity ?? 0 : 0;
       const duration = this._hopDuration();
@@ -233,7 +238,11 @@ export class Player {
         return false;
       }
     } else {
-      const baseCol = Math.round(this.x / TILE);
+      // Clamp the departure column into the playfield first. In normal play
+      // this is a no-op; it matters only when a log has carried the player
+      // outside the walls, where an unclamped target would reject *every*
+      // direction and strand them with no way back.
+      const baseCol = clamp(Math.round(this.x / TILE), PLAY_COL_MIN, PLAY_COL_MAX);
       const toCol = baseCol + d.col;
       if (toCol < PLAY_COL_MIN || toCol > PLAY_COL_MAX) {
         this._reject(ctx);
@@ -246,12 +255,22 @@ export class Player {
       toX = colToX(toCol);
     }
 
+    if (targetType === 'water') {
+      // Best estimate of the deck we are aiming at, so the arc lands level.
+      // Whatever platform is actually there wins at touchdown; the platform
+      // moves at most half a tile during a hop, so the correction is invisible.
+      const landing = world.platformAt(toRow, toX, this.grip);
+      toY = landing ? landing.surfaceY ?? 0 : 0;
+    }
+
     const hop = this.hop;
     hop.active = true;
     hop.t = 0;
     hop.duration = this._hopDuration();
     hop.fromX = this.x;
     hop.toX = toX;
+    hop.fromY = this.baseY;
+    hop.toY = toY;
     hop.fromRow = fromRow;
     hop.toRow = toRow;
 
@@ -281,7 +300,10 @@ export class Player {
 
     this.x = lerp(hop.fromX, hop.toX, e);
     this.rowF = lerp(hop.fromRow, hop.toRow, e);
-    this.y = HOP_HEIGHT * hopArc(p) + (this.flying ? JETPACK_ALTITUDE : 0);
+    this.y =
+      lerp(hop.fromY, hop.toY, e) +
+      HOP_HEIGHT * hopArc(p) +
+      (this.flying ? JETPACK_ALTITUDE : 0);
 
     if (p >= 1) this._land(ctx);
   }
@@ -292,7 +314,6 @@ export class Player {
     this.x = hop.toX;
     this.gridRow = hop.toRow;
     this.rowF = hop.toRow;
-    this.y = this.flying ? JETPACK_ALTITUDE : 0;
 
     const world = ctx.world;
     const row = world.rowAt(this.gridRow);
@@ -302,7 +323,9 @@ export class Player {
       if (platform) {
         this.carrier = platform;
         this.carrierRow = this.gridRow;
+        this.baseY = platform.surfaceY ?? 0;
       } else {
+        this.baseY = 0;
         this.carrier = null;
         if (!this.flying && this.invulnerable <= 0) {
           ctx.onDeath?.('water');
@@ -311,8 +334,10 @@ export class Player {
       }
     } else {
       this.carrier = null;
+      this.baseY = 0;
     }
 
+    this.y = this.baseY + (this.flying ? JETPACK_ALTITUDE : 0);
     ctx.onLand?.(row ? row.type : 'grass');
     if (!this.flying) this._consumeQueue(ctx);
   }
@@ -369,6 +394,7 @@ export class Player {
       if (platform) {
         this.carrier = platform;
         this.carrierRow = this.gridRow;
+        this.baseY = platform.surfaceY ?? 0;
         this.x = clamp(this.x, platform.x - platform.halfLen, platform.x + platform.halfLen);
       } else {
         // Walk back to the last solid row we can find.
@@ -385,7 +411,7 @@ export class Player {
           }
         }
       }
-      this.y = 0;
+      this.y = this.baseY;
       this.hop.active = false;
       this.z = rowToZ(this.rowF);
     }

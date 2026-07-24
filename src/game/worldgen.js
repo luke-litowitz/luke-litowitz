@@ -55,35 +55,43 @@ for (let c = PLAY_COL_MIN; c <= PLAY_COL_MAX; c++) ALL_COLS.push(c);
  * @param {number} opts.minGap      hard minimum clear distance between items
  * @param {number} [opts.maxGap]    soft maximum; more items are added to respect it
  * @param {number} [opts.coverage]  minimum fraction of the span covered by items
- * @param {()=>{length:number}} opts.makeItem
+ * @param {(maxLength:number)=>({length:number}|null)} opts.makeItem
+ *   Receives the space actually left in the cycle. Honouring it lets a
+ *   generator emit a shorter item instead of stalling the pack, which is what
+ *   keeps the coverage floor reachable on an unlucky draw.
  */
 export function buildCycle(rng, { span, minGap, maxGap = Infinity, coverage = 0, makeItem }) {
   const items = [];
   let used = 0; // sum of item lengths
-  const capacityFor = (n) => used + n * minGap;
+
+  /** Space a new item could occupy, once its own gap is reserved. */
+  const roomForNext = () => span - used - (items.length + 1) * minGap;
 
   // Seed with as many items as comfortably fit at a relaxed spacing.
-  const probe = makeItem();
+  const probe = makeItem(span);
   const nominal = probe.length + minGap + Math.min(maxGap, minGap * 1.5) * 0.5;
-  let target = Math.max(1, Math.floor(span / Math.max(0.5, nominal)));
+  const target = Math.max(1, Math.floor(span / Math.max(0.5, nominal)));
 
   for (let i = 0; i < target; i++) {
-    const item = makeItem();
-    if (used + item.length + (items.length + 1) * minGap > span) break;
+    const room = roomForNext();
+    if (room <= 0) break;
+    const item = makeItem(room);
+    if (!item || item.length > room) break;
     items.push(item);
     used += item.length;
   }
   if (items.length === 0) {
-    // Span is tiny relative to the item — fall back to a single item.
-    const item = makeItem();
+    // Span is tiny relative to the item — fall back to a single clamped item.
+    const item = makeItem(span * 0.5) || { length: span * 0.5 };
+    item.length = Math.min(item.length, span * 0.5);
     items.push(item);
-    used = Math.min(item.length, span * 0.5);
-    items[0].length = used;
+    used = item.length;
   }
 
-  // Grow until coverage and maxGap constraints are satisfied (bounded).
+  // Grow until the coverage and maxGap constraints are satisfied.
+  // Bounded by the span itself: every iteration either adds length or stops.
   let guard = 0;
-  while (guard++ < 64) {
+  while (guard++ < 256) {
     const gaps = items.length;
     const slack = span - used - gaps * minGap;
     const avgGap = minGap + (gaps > 0 ? slack / gaps : 0);
@@ -91,8 +99,10 @@ export function buildCycle(rng, { span, minGap, maxGap = Infinity, coverage = 0,
     const needMoreForMaxGap = avgGap > maxGap;
     if (!needMoreForCoverage && !needMoreForMaxGap) break;
 
-    const item = makeItem();
-    if (capacityFor(items.length + 1) + item.length > span) break;
+    const room = roomForNext();
+    if (room <= 0) break;
+    const item = makeItem(room);
+    if (!item || item.length > room) break;
     items.push(item);
     used += item.length;
   }
@@ -284,7 +294,7 @@ export class WorldGenerator {
 
     const blocked = new Set(obstacles.map((o) => o.col));
     const free = ALL_COLS.filter((c) => !blocked.has(c));
-    this.reachable = this._floodReachable(free, blocked);
+    this.reachable = this._floodReachable(free);
 
     const openCols = free.filter((c) => this.reachable.has(c));
     return {
@@ -324,22 +334,59 @@ export class WorldGenerator {
       if (blocked.size >= ALL_COLS.length - 1) continue;
 
       const free = ALL_COLS.filter((c) => !blocked.has(c));
-      if (this._floodReachable(free, blocked).size > 0) return obstacles;
+      if (this._floodReachable(free).size > 0) return obstacles;
     }
     return [];
   }
 
   /**
-   * Columns of the new row the player can actually occupy:
-   * land on a free column that was reachable, then slide sideways along the
-   * contiguous free run containing it.
+   * Split a column set into contiguous runs. A run is exactly the set of
+   * positions a standing player can slide between without moving forward.
+   * @param {Set<number>} set
+   * @returns {number[][]}
    */
-  _floodReachable(free, blocked) {
+  _runs(set) {
+    const cols = [...set].sort((a, b) => a - b);
+    const runs = [];
+    let cur = null;
+    for (const c of cols) {
+      if (cur && c === cur[cur.length - 1] + 1) cur.push(c);
+      else {
+        cur = [c];
+        runs.push(cur);
+      }
+    }
+    return runs;
+  }
+
+  /**
+   * Columns of the new row the player can actually occupy.
+   *
+   * The invariant is stronger than "a path exists": *every* contiguous run of
+   * currently-reachable columns must contain at least one column that is free
+   * in the new row. Only checking that the row is reachable somewhere would
+   * still let a player slide into an isolated pocket — one free tile walled in
+   * on both sides — and then find the way forward blocked, with nothing to do
+   * but retreat or wait for the eagle.
+   *
+   * @returns {Set<number>} empty when the layout must be re-rolled
+   */
+  _floodReachable(free) {
     const freeSet = new Set(free);
+
+    for (const run of this._runs(this.reachable)) {
+      let hasExit = false;
+      for (const c of run) {
+        if (freeSet.has(c)) {
+          hasExit = true;
+          break;
+        }
+      }
+      if (!hasExit) return new Set();
+    }
+
     const landing = [];
     for (const c of this.reachable) if (freeSet.has(c)) landing.push(c);
-
-    // No direct landing: the row is a wall. Caller re-rolls.
     if (landing.length === 0) return new Set();
 
     const out = new Set();
@@ -377,8 +424,11 @@ export class WorldGenerator {
       span: TRAFFIC_SPAN,
       minGap: gap,
       maxGap: gap * 2.6,
-      makeItem: () => {
+      makeItem: (room) => {
         const type = pickVehicle(rng, score, laneKind);
+        // Vehicles are rigid; if this one will not fit, end the pack rather
+        // than emit a stretched or clipped car.
+        if (type.length > room) return null;
         return {
           length: type.length,
           typeId: type.id,
@@ -440,11 +490,14 @@ export class WorldGenerator {
       minGap: LOG_GAP[0],
       maxGap: LOG_GAP[1],
       coverage: diff.logCoverage,
-      makeItem: () => {
+      makeItem: (room) => {
+        const fits = Math.floor(room / TILE);
+        if (fits < 1) return null;
         if (useLily && rng.chance(0.5)) {
           return { length: 1 * TILE, kind: 'lily', withFlower: rng.chance(0.4) };
         }
-        const tiles = rng.int(diff.logLength[0], diff.logLength[1]);
+        const maxTiles = Math.min(diff.logLength[1], fits);
+        const tiles = rng.int(Math.min(diff.logLength[0], maxTiles), maxTiles);
         return { length: tiles * TILE, kind: 'log', tiles };
       },
     });
