@@ -62,6 +62,12 @@ export class Eagle {
     return this.state !== STATE.IDLE;
   }
 
+  /** Call off an in-progress warning or dive (the player died some other way). */
+  standDown() {
+    if (this.state === STATE.CARRYING) return;
+    this.reset();
+  }
+
   /** Seconds until the grab, for the HUD warning. 0 when not warning. */
   get countdown() {
     return this.state === STATE.WARNING ? Math.max(0, EAGLE_WARNING - this.timer) : 0;

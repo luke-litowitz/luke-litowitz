@@ -17,20 +17,18 @@ import {
   COL_MAX,
   ROWS_AHEAD,
   ROWS_BEHIND,
-  PLAYER_HALF_W,
-  PLAYER_HALF_D,
   LOG_TOP_Y,
   LILYPAD_TOP_Y,
   COIN_PICKUP_RADIUS,
   PLATFORM_GRIP_MARGIN,
+  TRAIN_CAR_LENGTH,
 } from '../core/constants.js';
-import { rowToZ, colToX, makeAABB, sweptAABB, clamp, hash01 } from '../core/math.js';
+import { rowToZ, colToX, sweptAABB, clamp, hash01 } from '../core/math.js';
 import { cyclePosition, CYCLE_START_X, WorldGenerator } from './worldgen.js';
 import { vehicleById } from './vehicles.js';
 
 const COIN_Y = 0.42;
 const CRATE_Y = 0.34;
-const TRAIN_CAR_LENGTH = 4.6;
 
 /** Scratch AABBs — reused so collision never allocates. */
 const _boxA = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
@@ -212,8 +210,7 @@ export class Row {
     }
   }
 
-  _initPickups(plan, props) {
-    const { props: factory } = this.world;
+  _initPickups(plan, factory) {
     for (const col of plan.coins || []) {
       const mesh = factory.coin();
       const x = colToX(col);
@@ -228,7 +225,6 @@ export class Row {
       this.group.add(mesh);
       this.crate = { id: plan.powerup.id, x, y: CRATE_Y, mesh, taken: false };
     }
-    void props;
   }
 
   /* ---------------------------------------------------------------- *
@@ -449,6 +445,12 @@ export class World {
     this.generator = new WorldGenerator(1);
     /** @type {Map<number, Row>} */
     this.rows = new Map();
+    /**
+     * Array mirror of `rows`, rebuilt only when a row is added or recycled.
+     * Iterating a Map allocates an iterator; this runs 120 times a second.
+     * @type {Row[]}
+     */
+    this.list = [];
     /** @type {Row[]} */
     this._pool = [];
 
@@ -459,11 +461,14 @@ export class World {
     this.maxRow = -1;
     this.elapsed = 0;
     this._lastPlan = null;
+    /** Reused so a collision does not allocate mid-step. */
+    this._hitRecord = { cause: '', item: null, row: null };
   }
 
   reset(seed) {
-    for (const row of this.rows.values()) this._recycle(row);
+    for (const row of this.list) this._recycle(row);
     this.rows.clear();
+    this.list.length = 0;
     this.generator.reset(seed, -ROWS_BEHIND);
     this.minRow = -ROWS_BEHIND;
     this.maxRow = -ROWS_BEHIND - 1;
@@ -506,6 +511,7 @@ export class World {
       const row = this._acquire().init(plan, neighbours);
       this.root.add(row.group);
       this.rows.set(plan.index, row);
+      this.list.push(row);
       this.maxRow = plan.index;
       this._lastPlan = plan;
     }
@@ -515,6 +521,8 @@ export class World {
       const row = this.rows.get(this.minRow);
       if (row) {
         this.rows.delete(this.minRow);
+        const at = this.list.indexOf(row);
+        if (at >= 0) this.list.splice(at, 1);
         this._recycle(row);
       }
       this.minRow++;
@@ -536,11 +544,11 @@ export class World {
 
   fixedUpdate(dt) {
     this.elapsed += dt;
-    for (const row of this.rows.values()) row.fixedUpdate(dt);
+    for (let i = 0; i < this.list.length; i++) this.list[i].fixedUpdate(dt);
   }
 
   render(alpha, elapsed) {
-    for (const row of this.rows.values()) row.render(alpha, elapsed);
+    for (let i = 0; i < this.list.length; i++) this.list[i].render(alpha, elapsed);
   }
 
   /**
@@ -562,7 +570,12 @@ export class World {
       const row = this.rows.get(r);
       if (!row) continue;
       const hit = row.hitTest(p.prevX, p.prevZ, dx, dz, p.halfW, p.halfD);
-      if (hit) return { ...hit, row };
+      if (hit) {
+        this._hitRecord.cause = hit.cause;
+        this._hitRecord.item = hit.item;
+        this._hitRecord.row = row;
+        return this._hitRecord;
+      }
     }
     return null;
   }
@@ -619,22 +632,26 @@ export class World {
     }
   }
 
-  /** Rows whose train warning just switched on, for the audio layer. */
-  *newWarnings() {
-    for (const row of this.rows.values()) {
+  /**
+   * Announce rail rows whose warning just switched on.
+   * Callback-based rather than a generator: this runs every simulation step,
+   * and a generator object per step is 120 allocations a second for nothing.
+   * @param {(row: Row)=>void} cb
+   */
+  forEachNewWarning(cb) {
+    for (const row of this.list) {
       if (row.type === 'rail' && row.warningOn && !row.hornPlayed) {
         row.hornPlayed = true;
-        yield row;
+        cb(row);
       }
     }
   }
 
   dispose() {
-    for (const row of this.rows.values()) row.release();
+    for (const row of this.list) row.release();
     this.rows.clear();
+    this.list.length = 0;
     this._pool.length = 0;
     this.root.removeFromParent();
   }
 }
-
-export { PLAYER_HALF_W, PLAYER_HALF_D, makeAABB };

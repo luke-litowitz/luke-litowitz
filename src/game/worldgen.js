@@ -19,6 +19,7 @@ import {
   PLAY_COL_MAX,
   SAFE_ROWS,
   TILE,
+  TRAIN_CAR_LENGTH,
 } from '../core/constants.js';
 import {
   difficultyAt,
@@ -387,11 +388,6 @@ export class WorldGenerator {
       },
     });
 
-    // Where the lane divider stripes go: a run of road rows only paints the
-    // shared edges, so a 3-lane highway looks like one road.
-    const edge = { top: this.runLeft <= 0, bottom: this.lastRowWasRoad !== true };
-    this.lastRowWasRoad = true;
-
     const openCols = ALL_COLS.slice();
     this.reachable = new Set(openCols);
 
@@ -401,7 +397,6 @@ export class WorldGenerator {
       dir,
       speed,
       cycle,
-      edge,
       tint: index % 2 === 0 ? 0 : 1,
       coins: rng.chance(0.35) ? this._rollCoins(diff, openCols, rng, 1) : [],
       powerup: null,
@@ -414,7 +409,6 @@ export class WorldGenerator {
 
   _water(index, diff) {
     const rng = this.rng;
-    this.lastRowWasRoad = false;
 
     let dir = rng.chance(0.5) ? 1 : -1;
     let speed = rng.range(diff.logSpeed[0], diff.logSpeed[1]);
@@ -475,7 +469,6 @@ export class WorldGenerator {
 
   _rail(index, diff) {
     const rng = this.rng;
-    this.lastRowWasRoad = false;
 
     const dir = rng.chance(0.5) ? 1 : -1;
     const speed = clamp(diff.trainSpeed * rng.range(0.9, 1.1), 8, MAX_TRAIN_SPEED);
@@ -483,7 +476,7 @@ export class WorldGenerator {
 
     // One train per cycle. The gap is sized so the track is clear at any
     // given column for at least `trainWindow` seconds.
-    const trainLength = cars * 4.6;
+    const trainLength = cars * TRAIN_CAR_LENGTH;
     const minGap = Math.max(diff.trainWindow * speed, trainLength * 0.6);
     const span = Math.max(TRAFFIC_SPAN, trainLength + minGap + speed * 1.5);
 

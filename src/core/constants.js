@@ -131,6 +131,9 @@ export const ROAD_SINK = 0.02;
 export const WATER_SINK = 0.24;
 export const RAIL_SINK = 0.01;
 
+/** Length of one train car along X. Worldgen and the row runtime must agree. */
+export const TRAIN_CAR_LENGTH = 4.6;
+
 export const LOG_TOP_Y = 0.16;
 export const LILYPAD_TOP_Y = 0.06;
 

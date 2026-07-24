@@ -96,7 +96,16 @@ export class Game {
     };
 
     this._hudState = { score: -1, best: -1, coins: -1 };
+    /** Reused probe for the swept collision query — no per-step allocation. */
+    this._probe = { prevX: 0, prevZ: 0, x: 0, z: 0, halfW: 0, halfD: 0 };
+    this._onPickupBound = (type, payload) => this._onPickup(type, payload);
     this._holdJetpack = (id) => id === 'jetpack' && !this._canEndFlight();
+    this._onTrainWarning = (row) => {
+      // Horn volume falls off with distance so a far-off crossing is a hint,
+      // not a jump scare.
+      const dist = Math.abs(row.index - this.player.rowF);
+      if (dist < 9) this.audio.play('train-horn', { gain: clamp(1 - dist / 12, 0.15, 1) });
+    };
 
     this.applyCharacter(profile.selected);
     this.applySettings(profile.settings);
@@ -249,7 +258,8 @@ export class Game {
 
     this.state = STATE.DEAD;
     this.deathTimer = 0;
-    this.eagle.state = cause === 'eagle' ? this.eagle.state : 0;
+    // The eagle only keeps flying if it was the one that got you.
+    if (cause !== 'eagle') this.eagle.standDown();
 
     const px = this.player.x;
     const pz = this.player.z;
@@ -326,9 +336,19 @@ export class Game {
     this.player.requestMove(dir);
   }
 
+  /**
+   * Each character has its own hop voice. The synth's `hop` sweep is authored
+   * around a ~480 Hz start, so a character's `baseFreq` becomes a playback
+   * rate relative to that — which also shortens or lengthens the blip, so
+   * heavy characters land with a lower, longer thud.
+   */
   _onHop() {
     const voice = this.character?.hopSound;
-    this.audio.play('hop', voice ? { rate: 1, freq: voice.baseFreq, type: voice.type } : undefined);
+    if (!voice) return this.audio.play('hop');
+    this.audio.play('hop', {
+      rate: clamp(voice.baseFreq / 480, 0.45, 1.8),
+      type: voice.type,
+    });
   }
 
   _onLand(rowType) {
@@ -407,14 +427,14 @@ export class Game {
       this.player.fixedUpdate(sdt, this._playerCtx);
 
       if (playing && this.player.alive) {
-        const hit = this.world.hitTestPlayer({
-          prevX: this.player.prevX,
-          prevZ: this.player.prevZ,
-          x: this.player.x,
-          z: this.player.z,
-          halfW: this.player.halfW,
-          halfD: this.player.halfD,
-        });
+        const probe = this._probe;
+        probe.prevX = this.player.prevX;
+        probe.prevZ = this.player.prevZ;
+        probe.x = this.player.x;
+        probe.z = this.player.z;
+        probe.halfW = this.player.halfW;
+        probe.halfD = this.player.halfD;
+        const hit = this.world.hitTestPlayer(probe);
         if (hit) this.die(hit.cause);
       }
 
@@ -424,7 +444,7 @@ export class Game {
           this.player.rowF,
           this.powerups.magnetRadius,
           sdt,
-          (type, payload) => this._onPickup(type, payload),
+          this._onPickupBound,
         );
         this.eagle.fixedUpdate(sdt, this.player, this._eagleCtx);
         this.powerups.fixedUpdate(dt, this._holdJetpack);
@@ -441,10 +461,7 @@ export class Game {
 
     this.world.ensure(this.player.rowF, this.score);
 
-    for (const row of this.world.newWarnings()) {
-      const dist = Math.abs(row.index - this.player.rowF);
-      if (dist < 9) this.audio.play('train-horn', { gain: clamp(1 - dist / 12, 0.15, 1) });
-    }
+    this.world.forEachNewWarning(this._onTrainWarning);
   }
 
   _updateScore() {
