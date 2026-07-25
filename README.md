@@ -22,7 +22,7 @@ Open `http://localhost:8080/` and press **Play**.
 Individual checks:
 
 ```bash
-npm test           # 89 tests: physics, world generation, persistence, power-ups
+npm test           # 91 tests: physics, world generation, persistence, power-ups
 npm run check      # parse every source file and resolve every import
 npm run smoke      # boot the real game in Chromium and soak 100k simulation steps
 ```

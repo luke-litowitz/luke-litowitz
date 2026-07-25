@@ -223,6 +223,10 @@ export class Game {
     if (this.state !== STATE.PLAYING) return;
     this.state = STATE.PAUSED;
     this.audio.suspend();
+    // The HUD is an independent layer with its own live pause button. Left up,
+    // it paints the score over a modal's title bar and puts a 44px tap target
+    // on top of the dialog's own controls.
+    this.ui?.hide('hud');
     this.ui?.show('paused');
   }
 
@@ -287,7 +291,7 @@ export class Game {
   die(cause) {
     if (this.state !== STATE.PLAYING || !this.player.alive) return;
     if (this.powerups.invulnerable) return;
-    if (this.player.invulnerable > 0 && cause !== 'void') return;
+    if (this.player.invulnerable > 0) return;
 
     if (this.powerups.consumeShield()) {
       this.player.survive(cause, this.world);
@@ -526,19 +530,17 @@ export class Game {
         probe.halfW = this.player.halfW;
         probe.halfD = this.player.halfD;
         const hit = this.world.hitTestPlayer(probe);
-        if (hit) this.die(hit.cause);
-      } else if (playing && this.player.invulnerable > 0 && this.player.invulnerable < 0.3) {
-        // Do not let a shield's grace lapse while the vehicle that triggered
-        // it is still on top of the player — a slow bus takes longer to clear
-        // than the fixed grace period, and would simply kill them again.
-        const probe = this._probe;
-        probe.prevX = this.player.prevX;
-        probe.prevZ = this.player.prevZ;
-        probe.x = this.player.x;
-        probe.z = this.player.z;
-        probe.halfW = this.player.halfW;
-        probe.halfD = this.player.halfD;
-        if (this.world.hitTestPlayer(probe)) this.player.invulnerable = 0.3;
+        if (hit) {
+          // A shield's grace must not lapse while the vehicle that triggered
+          // it is still on top of the player: a 3.4-unit bus in a slow lane
+          // takes longer to clear than any fixed grace window, and would
+          // simply kill them again the instant it expired.
+          if (this.player.invulnerable > 0) {
+            this.player.invulnerable = Math.max(this.player.invulnerable, 0.3);
+          } else {
+            this.die(hit.cause);
+          }
+        }
       }
 
       if (playing && this.player.alive) {

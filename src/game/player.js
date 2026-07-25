@@ -405,31 +405,56 @@ export class Player {
     this.queue.length = 0;
 
     if (cause === 'water' || cause === 'void') {
-      const platform = world.platformAt(this.gridRow, this.x, this.grip * 6);
-      if (platform) {
+      // A void death means the player was carried past the wall — and being
+      // carried is the only way to get there, so the platform under them is
+      // itself out of bounds. Re-seating on it would put them right back where
+      // they died and the same death would fire on the very next step, eating
+      // the shield for nothing. Only a water rescue may use a platform, and
+      // only one that is actually inside the playfield.
+      const platform =
+        cause === 'water' ? world.platformAt(this.gridRow, this.x, this.grip * 6) : null;
+      const platformInBounds =
+        platform && Math.abs(clamp(this.x, platform.x - platform.halfLen, platform.x + platform.halfLen)) < BOUND_X;
+
+      if (platformInBounds) {
         this.carrier = platform;
         this.carrierRow = this.gridRow;
         this.baseY = platform.surfaceY ?? 0;
         this.x = clamp(this.x, platform.x - platform.halfLen, platform.x + platform.halfLen);
       } else {
-        // Walk back to the last solid row we can find.
-        for (let r = this.gridRow; r > world.minRow; r--) {
-          const row = world.rowAt(r);
-          if (row && row.type !== 'water') {
-            const col = clamp(Math.round(this.x / TILE), PLAY_COL_MIN, PLAY_COL_MAX);
-            const free = row.isBlocked(col) ? this._nearestFreeCol(row, col) : col;
-            this.gridRow = r;
-            this.rowF = r;
-            this.x = colToX(free);
-            this.carrier = null;
-            break;
-          }
-        }
+        this._retreatToSolidGround(world);
       }
+
       this.y = this.baseY;
       this.hop.active = false;
       this.z = rowToZ(this.rowF);
     }
+  }
+
+  /**
+   * Put the player back on the nearest solid row at or behind them, inside the
+   * playfield walls. The column clamp is what guarantees the rescue actually
+   * rescues: whatever happens, they end up somewhere they can stand.
+   * @private
+   */
+  _retreatToSolidGround(world) {
+    this.carrier = null;
+    this.baseY = 0;
+    const col = clamp(Math.round(this.x / TILE), PLAY_COL_MIN, PLAY_COL_MAX);
+
+    for (let r = this.gridRow; r > world.minRow; r--) {
+      const row = world.rowAt(r);
+      if (!row || row.type === 'water') continue;
+      const free = row.isBlocked(col) ? this._nearestFreeCol(row, col) : col;
+      this.gridRow = r;
+      this.rowF = r;
+      this.x = colToX(free);
+      return;
+    }
+
+    // No solid row behind us at all (only reachable if the world is mid-reset).
+    // Still pull them inside the walls so the death cannot immediately repeat.
+    this.x = colToX(col);
   }
 
   _nearestFreeCol(row, col) {

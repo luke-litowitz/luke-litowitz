@@ -32,8 +32,14 @@
   --sky: #8fd6ff;
   --coin: #ffd24a;
   --coin-dark: #e0a91f;
+  /* Text-safe variants. The bright brand colours are for fills and glyphs;
+     these are the ones allowed to carry words on a light surface.
+     --coin-ink  #896713 on #eef1f6 = 4.6:1, on #ffffff = 5.2:1
+     --danger-dark #b62f28 on #ffffff = 6.1:1 (--danger itself is 3.9:1) */
+  --coin-ink: #896713;
   --danger: #e8453c;
   --danger-dark: #b62f28;
+  --danger-ink: #b62f28;
   --info: #3d7de8;
 
   /* Surfaces (light) */
@@ -102,6 +108,10 @@
     --shadow-2: 0 12px 30px rgba(0, 0, 0, 0.45);
     --shadow-3: 0 26px 64px rgba(0, 0, 0, 0.6);
     --focus: #7fb4ff;
+    /* On the dark surfaces the bright brand colours are already the readable
+       choice; the light-mode text variants would be far too dark. */
+    --coin-ink: #ffd24a;
+    --danger-ink: #ff8a80;
   }
 }
 
@@ -351,7 +361,7 @@ body {
 
 .btn--danger {
   border-color: var(--danger-dark);
-  color: var(--danger);
+  color: var(--danger-ink);
   box-shadow: 0 4px 0 var(--danger-dark), var(--shadow-1);
 }
 
@@ -760,12 +770,14 @@ body {
 }
 
 .card[data-state="buy"] .card__price {
-  color: var(--coin-dark);
+  color: var(--coin-ink);
 }
 
 .card[data-state="locked"] {
-  opacity: 0.5;
-  filter: grayscale(0.6);
+  /* Dimmed enough to read as unavailable, but not so far that the price —
+     the one thing the player needs from a locked card — becomes unreadable. */
+  opacity: 0.78;
+  filter: grayscale(0.3);
   cursor: not-allowed;
 }
 
@@ -829,15 +841,15 @@ body {
 }
 
 .table .is-medal-1 .col-rank {
-  color: #d4a017;
+  color: #8a6810; /* gold rank: 5.0:1 on the light table */
 }
 
 .table .is-medal-2 .col-rank {
-  color: #9aa3b2;
+  color: #5f6878; /* silver rank: 4.8:1 */
 }
 
 .table .is-medal-3 .col-rank {
-  color: #c1794a;
+  color: #8a5330; /* bronze rank: 5.1:1 */
 }
 
 /* Phones: drop the date rather than make the whole board scroll sideways. */
@@ -958,7 +970,7 @@ body {
   font-size: var(--fs-xl);
   font-weight: 900;
   letter-spacing: -0.01em;
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .screen--gameover[data-cause="water"] .gameover__eyebrow {
@@ -1200,7 +1212,7 @@ body {
 
 .toast--error {
   border-color: var(--danger-dark);
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .toast--info {

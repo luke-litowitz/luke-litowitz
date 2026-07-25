@@ -1016,6 +1016,9 @@ export class UI {
     const state = selected ? 'selected' : owned ? 'owned' : affordable ? 'buy' : 'locked';
     const rarity = RARITIES[c.rarity] || RARITIES.common;
     const color = safeColor(rarity.color, '#78889a');
+    // The bright identity colour is not readable behind white text at chip
+    // size, so each rarity also carries a darkened variant for filled chips.
+    const chip = safeColor(rarity.chip || rarity.color, '#687686');
 
     const footer =
       state === 'selected'
@@ -1039,8 +1042,8 @@ export class UI {
               style="--rarity:${color}"
               aria-pressed="${selected ? 'true' : 'false'}"
               aria-label="${esc(label)}"
-              ${state === 'locked' ? 'disabled' : ''}>
-        <span class="card__rarity" style="--rarity:${color}">${esc(rarity.label)}</span>
+              ${state === 'locked' ? 'aria-disabled="true"' : ''}>
+        <span class="card__rarity" style="--rarity:${chip}">${esc(rarity.label)}</span>
         <span class="card__name">${esc(c.name)}</span>
         ${c.perk ? `<span class="card__perk">${esc(c.perk.label)}</span>` : '<span class="card__perk card__perk--none">No perk</span>'}
         <span class="card__foot">${footer}</span>
@@ -1054,6 +1057,8 @@ export class UI {
     const state = el.dataset.state;
     if (state === 'owned') this._emit('select-character', id);
     else if (state === 'buy') this._emit('buy-character', id);
+    // 'locked' cards stay focusable (aria-disabled, not disabled) so the whole
+    // roster is browsable by keyboard; activating one is simply inert.
     else if (state === 'selected') this._sfx('menu-move');
   }
 
@@ -1140,7 +1145,19 @@ export class UI {
     clearLeaderboard(this.profile);
     this._emit('clear-leaderboard');
     this.refreshLeaderboard();
+    // The button that was just activated may now be gone or disabled; leaving
+    // focus on <body> would drop a keyboard user out of the dialog entirely.
+    this._rescueFocus();
     this.toast('Scores cleared.', 'info');
+  }
+
+  /** @private Move focus somewhere sane when the active control disappears. */
+  _rescueFocus() {
+    const modal = this._current ? this._screens.get(this._current) : null;
+    if (!modal) return;
+    const active = document.activeElement;
+    if (active && modal.contains(active) && !active.disabled && active !== document.body) return;
+    this._focusFirst(modal);
   }
 
   _disarmClear() {
@@ -1366,6 +1383,11 @@ export class UI {
     const el = document.createElement('div');
     el.className = `toast toast--${TOAST_KINDS.has(kind) ? kind : 'info'}`;
     el.textContent = String(message ?? '');
+    // aria-modal="true" hides everything outside the dialog from assistive
+    // tech, so a toast parked at the document level is never announced.
+    // Re-home the stack into whichever screen is currently modal.
+    const host = (this._current && this._screens.get(this._current)) || this.root;
+    if (stack.parentElement !== host) host.appendChild(stack);
     stack.appendChild(el);
 
     while (stack.children.length > MAX_TOASTS) {

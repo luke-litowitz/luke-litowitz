@@ -632,6 +632,99 @@ async function main() {
   });
   log('  train:', JSON.stringify(train));
 
+  /* --- A shield survives the whole vehicle, not 1.4 seconds of it ----
+   * A 3.4-unit bus in a slow lane takes longer to pass a standing player than
+   * any fixed grace window, so the grace has to be extended while the vehicle
+   * is still overlapping — otherwise the same bus kills them the instant it
+   * lapses, after the UI already said the shield absorbed the hit.
+   */
+  const shield = await page.evaluate(() => {
+    const g = window.__crossy.game;
+    const DT = 1 / 120;
+    const GRACE = 1.4; // Player.survive()
+
+    // Find any road row ahead, then slow it to a speed that guarantees the
+    // vehicle takes longer to pass than the grace window lasts. Hunting for a
+    // naturally slow bus makes the test depend on the generator's mood; the
+    // invariant under test is the collision/grace interaction, not traffic.
+    let row = null;
+    g.start();
+    for (let i = 0; i < 8000 && !row; i++) {
+      if (g.state !== 'playing') g.start();
+      g.fixedUpdate(DT);
+      row = g.world.list.find((r) => r.type === 'road' && r.index > g.player.gridRow && r.items.length);
+    }
+    if (!row) return { found: false };
+
+    const item = row.items.reduce((a, b) => (a.halfLen > b.halfLen ? a : b));
+    const passDistance = item.halfLen * 2 + 0.6;
+    row.plan.speed = passDistance / (GRACE * 1.6); // pass takes ~2.24 s
+    const dir = row.plan.dir;
+
+    g.player.gridRow = row.index;
+    g.player.rowF = row.index;
+    g.player.z = -row.index;
+    g.player.hop.active = false;
+    g.player.invulnerable = 0;
+    g.powerups.reset();
+    g.powerups.activate('shield');
+
+    // Stand just ahead of the vehicle's bumper so the whole length passes over
+    // the player. Parking mid-vehicle only ever tests half the pass time.
+    const start = item.x + dir * (item.halfLen + g.player.halfW + 0.05);
+    g.player.x = start;
+    g.player.prevX = start;
+
+    // "Cleared" means the trailing edge has gone past the player. Testing
+    // overlap instead reads as cleared at the instant of first contact, when
+    // the two boxes are exactly touching.
+    const cleared = () =>
+      dir > 0
+        ? item.x - item.halfLen > g.player.x + g.player.halfW
+        : item.x + item.halfLen < g.player.x - g.player.halfW;
+
+    let absorbed = false;
+    let survivedPass = false;
+    let contactAt = 0;
+    let t = 0;
+    for (let i = 0; i < 6000 && g.player.alive; i++) {
+      g.fixedUpdate(DT);
+      t += DT;
+      g.player.idleTime = 0; // keep the eagle out of it
+      if (!absorbed && !g.powerups.has('shield')) {
+        absorbed = true;
+        contactAt = t;
+      }
+      if (absorbed && cleared()) {
+        survivedPass = true;
+        break;
+      }
+    }
+    return {
+      found: true,
+      passSeconds: +(passDistance / row.plan.speed).toFixed(2),
+      graceSeconds: GRACE,
+      absorbed,
+      survivedPass,
+      survivedFor: +(t - contactAt).toFixed(2),
+      alive: g.player.alive,
+      cause: g.player.deathCause,
+    };
+  });
+  log('  shield vs slow vehicle:', JSON.stringify(shield));
+  if (shield.found && !shield.absorbed) {
+    problems.push('the shield scenario never made contact — the fixture is broken');
+  } else if (shield.found && shield.passSeconds <= shield.graceSeconds) {
+    problems.push(
+      `the shield fixture is toothless: pass ${shield.passSeconds}s <= grace ${shield.graceSeconds}s`,
+    );
+  } else if (shield.found && !shield.survivedPass) {
+    problems.push(
+      `a shield absorbed a hit and the same vehicle killed anyway ` +
+        `(pass time ${shield.passSeconds}s, cause ${shield.cause})`,
+    );
+  }
+
   /* --- The eagle punishes standing still ---------------------------- */
   const eagle = await page.evaluate(() => {
     const g = window.__crossy.game;

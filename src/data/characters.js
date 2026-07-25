@@ -86,24 +86,28 @@ export const RARITIES = Object.freeze({
     id: 'common',
     label: 'Common',
     color: '#78889a',
+    chip: '#687686', // white-on-chip contrast: 4.6:1 (AA at 11px bold)
     glow: 'rgba(120, 136, 154, 0.45)',
   }),
   rare: Object.freeze({
     id: 'rare',
     label: 'Rare',
     color: '#2f96da',
+    chip: '#267ab1', // 4.7:1
     glow: 'rgba(47, 150, 218, 0.5)',
   }),
   epic: Object.freeze({
     id: 'epic',
     label: 'Epic',
     color: '#9b5de5',
+    chip: '#8a4fd0', // 4.7:1
     glow: 'rgba(155, 93, 229, 0.5)',
   }),
   legendary: Object.freeze({
     id: 'legendary',
     label: 'Legendary',
     color: '#f0921f',
+    chip: '#a66515', // 4.7:1
     glow: 'rgba(240, 146, 31, 0.55)',
   }),
 });

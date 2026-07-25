@@ -400,6 +400,52 @@ test('the jetpack flies over obstacles instead of parking in front of them', () 
   assert.ok(p.gridRow >= 1, `expected to fly past the obstacle, stuck at row ${p.gridRow}`);
 });
 
+test('a shield spent on a void death actually rescues the player', () => {
+  // A void death only happens while riding, so the platform underfoot is
+  // itself past the wall. Re-seating on it would put the player straight back
+  // where they died and the same death would fire on the next step, eating
+  // the shield for nothing.
+  const log = { x: 9, prevX: 9, halfLen: 8, surfaceY: 0.16 };
+  const world = makeWorld({
+    3: { type: 'grass' },
+    4: { type: 'water', velocity: 6, platforms: [log] },
+  });
+  const sink = {};
+  const p = new Player();
+  const ctx = makeCtx(world, sink);
+  p.gridRow = 4;
+  p.rowF = 4;
+  p.x = BOUND_X + 0.4;
+  p.carrier = log;
+  p.carrierRow = 4;
+
+  p.survive('void', world);
+
+  assert.ok(
+    Math.abs(p.x) <= PLAY_COL_MAX * TILE,
+    `rescue left the player at x=${p.x}, still outside the walls`,
+  );
+  assert.equal(p.carrier, null, 'must not be re-seated on the out-of-bounds log');
+  assert.equal(world.rowType(p.gridRow) !== 'water', true, 'should be back on solid ground');
+
+  // And the very next simulation step must not kill them again.
+  run(p, ctx, 0.1);
+  assert.equal(sink.death, undefined, `the shield was wasted: died of ${sink.death}`);
+});
+
+test('a water rescue still uses a platform when one is in bounds', () => {
+  const log = { x: 1, prevX: 1, halfLen: 2, surfaceY: 0.16 };
+  const world = makeWorld({ 4: { type: 'water', velocity: 1, platforms: [log] } });
+  const p = new Player();
+  p.gridRow = 4;
+  p.rowF = 4;
+  p.x = 1.4;
+
+  p.survive('water', world);
+  assert.equal(p.carrier, log, 'a perfectly good log should still catch them');
+  assert.equal(p.gridRow, 4);
+});
+
 test('a dead player ignores input', () => {
   const p = new Player();
   const ctx = makeCtx(makeWorld(), {});
