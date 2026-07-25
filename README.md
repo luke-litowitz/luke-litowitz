@@ -9,24 +9,36 @@ Three.js is vendored in `vendor/three/`.
 
 ```bash
 npm start          # serves the game at http://localhost:8080
-npm run verify     # imports + tests + a headless browser run
 ```
 
-Open `http://localhost:8080/` and press **Play**.
+Open `http://localhost:8080/` and press **Play**. Nothing to install — the
+game and its unit tests run straight from a fresh clone.
 
 | | |
 |---|---|
 | ![Main menu](docs/screenshots/menu.png) | ![Gameplay](docs/screenshots/gameplay.png) |
 | ![Character select](docs/screenshots/characters.png) | ![Game over](docs/screenshots/gameover.png) |
 
-Individual checks:
+## Verifying it
 
 ```bash
 npm test           # 91 tests: physics, world generation, persistence, power-ups
 npm run check      # parse every source file and resolve every import
-npm run smoke      # boot the real game in Chromium and soak 100k simulation steps
-npm run a11y       # keyboard reach, focus, live regions and layering, in-browser
 ```
+
+Those two need no install. The two browser harnesses drive real Chromium, so
+they need the dev dependency (`npm install`) first:
+
+```bash
+npm run smoke      # boot the game, soak 100k simulation steps, screenshot it
+npm run a11y       # keyboard reach, focus, live regions and layering
+npm run verify     # all four, in order
+```
+
+The soak is the interesting one: it plays ~100 runs' worth of simulation with
+an autopilot that waits for gaps in traffic, then asserts no NaN, no row leak,
+that trains kill, that the eagle grabs idlers, that every biome applies, and
+that quitting mid-run banks its coins.
 
 ---
 

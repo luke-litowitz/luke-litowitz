@@ -13,7 +13,25 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
-import { chromium } from 'playwright-core';
+
+/**
+ * Load Playwright, or explain why it is missing.
+ *
+ * The game itself needs no install — but this harness drives a real browser,
+ * so it needs the dev dependency. A raw ERR_MODULE_NOT_FOUND here reads like
+ * the project is broken rather than simply not set up.
+ */
+async function loadChromium() {
+  try {
+    return (await import('playwright-core')).chromium;
+  } catch {
+    console.error(
+      'This harness needs Playwright. Run `npm install` first ' +
+        '(the game and `npm test` need no install at all).',
+    );
+    process.exit(1);
+  }
+}
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const SHOT_DIR = join(ROOT, 'screenshots');
@@ -93,6 +111,7 @@ async function main() {
   const BASE = started.base;
   log(`server up on ${BASE}`);
 
+  const chromium = await loadChromium();
   browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
     args: [
