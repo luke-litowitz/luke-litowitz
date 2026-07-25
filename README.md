@@ -25,6 +25,7 @@ Individual checks:
 npm test           # 91 tests: physics, world generation, persistence, power-ups
 npm run check      # parse every source file and resolve every import
 npm run smoke      # boot the real game in Chromium and soak 100k simulation steps
+npm run a11y       # keyboard reach, focus, live regions and layering, in-browser
 ```
 
 ---

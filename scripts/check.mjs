@@ -23,7 +23,7 @@ const ROOTS = ['src', 'scripts', 'test'];
  * Files allowed to use bare specifiers. The game itself must not — it runs
  * unbundled in a browser — but dev tooling resolves through node_modules.
  */
-const TOOLING = new Set(['scripts/smoke.mjs']);
+const TOOLING = new Set(['scripts/smoke.mjs', 'scripts/a11y.mjs']);
 const IMPORT_RE = /(?:^|[^.\w])(?:import|export)\s[^;]*?from\s*['"]([^'"]+)['"]/g;
 const BARE_IMPORT_RE = /(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
 const DYNAMIC_RE = /import\(\s*['"]([^'"]+)['"]\s*\)/g;
