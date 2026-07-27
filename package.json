@@ -1,0 +1,31 @@
+{
+  "name": "crossy-cascade",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A 3D cross-the-road arcade game: traffic, rivers, trains, coins, power-ups and a roster of unlockable characters. No build step, no CDN.",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "dev": "node scripts/serve.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "a11y": "node scripts/a11y.mjs",
+    "verify": "npm run check && npm run coplanar && npm test && npm run smoke && npm run a11y",
+    "bundle": "node scripts/bundle.mjs",
+    "coplanar": "node scripts/coplanar.mjs"
+  },
+  "keywords": [
+    "game",
+    "threejs",
+    "webgl",
+    "arcade",
+    "voxel",
+    "crossy"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "playwright-core": "^1.61.1",
+    "three": "0.185.1"
+  }
+}

@@ -1,0 +1,1473 @@
+/* =====================================================================
+ * Crossy Cascade — the whole design system.
+ *
+ * Self-contained on purpose: no @import, no webfont, no CDN. The game must
+ * boot from a folder on a plane. Type comes from the system stack, every
+ * glyph is either a real character or drawn with CSS.
+ *
+ * Structure
+ *   1. Tokens        design variables, light + dark
+ *   2. Reset & stage canvas, overlay, layering
+ *   3. Primitives    buttons, chips, inputs, panels
+ *   4. Screens       menu, characters, leaderboard, settings, paused, over
+ *   5. HUD           score, coins, power-up strip
+ *   6. Toasts
+ *   7. Motion        keyframes + prefers-reduced-motion
+ *
+ * Layering: `#ui` is pointer-events:none so gameplay taps land on the canvas.
+ * Only an active modal screen and the HUD's own buttons opt back in.
+ * ===================================================================== */
+
+/* ------------------------------------------------------------------ *
+ * 1. Tokens
+ * ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Brand */
+  --grass: #6cc34a;
+  --grass-dark: #4c9a32;
+  --grass-light: #7fd45a;
+  --sky: #8fd6ff;
+  --coin: #ffd24a;
+  --coin-dark: #e0a91f;
+  /* Text-safe variants. The bright brand colours are for fills and glyphs;
+     these are the ones allowed to carry words on a light surface.
+     --coin-ink  #896713 on #eef1f6 = 4.6:1, on #ffffff = 5.2:1
+     --danger-dark #b62f28 on #ffffff = 6.1:1 (--danger itself is 3.9:1) */
+  --coin-ink: #896713;
+  --danger: #e8453c;
+  --danger-dark: #b62f28;
+  --danger-ink: #b62f28;
+  --info: #3d7de8;
+
+  /* Surfaces (light) */
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface-2: #eef1f6;
+  --surface-3: #e3e8f0;
+  --ink: #161a33;
+  --ink-soft: #4a5170;
+  --ink-mute: #6b7290;
+  --line: #d5dbe6;
+  --line-strong: #b9c2d3;
+  --scrim: rgba(12, 18, 40, 0.42);
+  --shadow-1: 0 2px 6px rgba(16, 22, 45, 0.1);
+  --shadow-2: 0 10px 26px rgba(16, 22, 45, 0.16);
+  --shadow-3: 0 24px 60px rgba(16, 22, 45, 0.26);
+  --focus: #1b7fff;
+
+  /* Shape */
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-pill: 999px;
+
+  /* Rhythm */
+  --gap-xs: 6px;
+  --gap-sm: 10px;
+  --gap: 16px;
+  --gap-lg: 24px;
+  --tap: 44px;
+
+  /* Type */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "Noto Sans", Arial, sans-serif;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: clamp(1.125rem, 0.95rem + 0.7vw, 1.375rem);
+  --fs-xl: clamp(1.5rem, 1.1rem + 1.8vw, 2.25rem);
+  --fs-2xl: clamp(2.25rem, 1.4rem + 4.2vw, 4rem);
+  --fs-hud: clamp(2.5rem, 1.6rem + 4.8vw, 4.5rem);
+
+  /* Safe areas (notches, home indicators) */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+
+  --speed: 160ms;
+  --ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #10142a;
+    --surface: #1b2140;
+    --surface-2: #232a4d;
+    --surface-3: #2c355e;
+    --ink: #f2f5ff;
+    --ink-soft: #c3cbe8;
+    --ink-mute: #949dbf;
+    --line: #333c66;
+    --line-strong: #4a5488;
+    --scrim: rgba(4, 7, 20, 0.58);
+    --shadow-1: 0 2px 6px rgba(0, 0, 0, 0.35);
+    --shadow-2: 0 12px 30px rgba(0, 0, 0, 0.45);
+    --shadow-3: 0 26px 64px rgba(0, 0, 0, 0.6);
+    --focus: #7fb4ff;
+    /* On the dark surfaces the bright brand colours are already the readable
+       choice; the light-mode text variants would be far too dark. */
+    --coin-ink: #ffd24a;
+    --danger-ink: #ff8a80;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. Reset & stage
+ * ------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  isolation: isolate;
+}
+
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The game owns every gesture on the play surface: no scroll, no pinch,
+     no double-tap zoom, and no 300 ms click delay. */
+  touch-action: none;
+  z-index: 1;
+}
+
+/* The overlay is transparent to input; interactive children opt back in. */
+#ui {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#ui button,
+#ui input,
+#ui select,
+#ui a[href],
+#ui [tabindex] {
+  pointer-events: auto;
+}
+
+:where(#ui) h1,
+:where(#ui) h2,
+:where(#ui) p,
+:where(#ui) ul {
+  margin: 0;
+}
+
+:where(#ui) ul {
+  padding: 0;
+  list-style: none;
+}
+
+/* Never set `border-radius` here: the outline already follows the element's own
+   radius, and overriding it re-shapes the control the instant it takes focus
+   (pill icon buttons turn into squares, the PLAY button loses its big radius). */
+#ui :focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* Fallback for engines without :focus-visible support. */
+#ui :focus:not(:focus-visible) {
+  outline: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* --- Screens ------------------------------------------------------- */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.screen.is-active {
+  display: flex;
+}
+
+.screen--modal {
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--gap) + var(--safe-t)) calc(var(--gap) + var(--safe-r))
+    calc(var(--gap) + var(--safe-b)) calc(var(--gap) + var(--safe-l));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--scrim);
+  backdrop-filter: blur(4px) saturate(1.1);
+  -webkit-backdrop-filter: blur(4px) saturate(1.1);
+  pointer-events: auto;
+  animation: fade-in var(--speed) var(--ease) both;
+}
+
+.screen--loading {
+  background: var(--bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.screen--hud.is-active {
+  display: block;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. Primitives
+ * ------------------------------------------------------------------ */
+
+.panel {
+  width: min(100%, 34rem);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: clamp(16px, 4vw, 28px);
+  border: 2px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  animation: pop-in 220ms var(--ease) both;
+  /* `max-height` caps the panel, so anything taller than the viewport (the
+     settings list on a landscape phone) would spill outside the card with no
+     way to reach it: the modal's own scrollbar never engages, because as far
+     as it is concerned the capped flex item fits. The panel has to scroll. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panel--wide {
+  width: min(100%, 62rem);
+}
+
+.panel--center {
+  text-align: center;
+  align-items: stretch;
+}
+
+.muted {
+  color: var(--ink-mute);
+  font-size: var(--fs-sm);
+}
+
+.screen__title {
+  font-size: var(--fs-xl);
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+/* --- Buttons ------------------------------------------------------- */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-sm);
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 10px 18px;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--line-strong), var(--shadow-1);
+  transition: transform var(--speed) var(--ease), background var(--speed) var(--ease),
+    box-shadow var(--speed) var(--ease), filter var(--speed) var(--ease);
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--line-strong), var(--shadow-1);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn__glyph {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.btn--play {
+  min-height: 62px;
+  padding: 14px 28px;
+  border-color: var(--grass-dark);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--grass-light), var(--grass));
+  color: #10240a;
+  font-size: var(--fs-xl);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  box-shadow: 0 6px 0 var(--grass-dark), var(--shadow-2);
+}
+
+.btn--play:active:not(:disabled) {
+  box-shadow: 0 2px 0 var(--grass-dark), var(--shadow-1);
+}
+
+.btn--compact {
+  min-height: 52px;
+  font-size: var(--fs-lg);
+}
+
+.btn--soft {
+  background: var(--surface-2);
+}
+
+.btn--danger {
+  border-color: var(--danger-dark);
+  color: var(--danger-ink);
+  box-shadow: 0 4px 0 var(--danger-dark), var(--shadow-1);
+}
+
+.btn--danger.is-armed {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn--icon {
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border-radius: var(--r-pill);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-sm);
+}
+
+.btn-row--end {
+  justify-content: flex-end;
+}
+
+.btn-col {
+  display: grid;
+  gap: var(--gap-sm);
+}
+
+/* --- Chips & the coin glyph ---------------------------------------- */
+
+.chiprow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--gap-sm);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 2px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.chip__label {
+  color: var(--ink-mute);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.1em;
+}
+
+.chip--coin {
+  border-color: var(--coin-dark);
+}
+
+/* Pure-CSS coin: a struck disc with a rim and a highlight. */
+.coin {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #fff2c0 0 18%, var(--coin) 55%, var(--coin-dark) 100%);
+  box-shadow: inset 0 0 0 0.11em var(--coin-dark);
+}
+
+/* --- Fields -------------------------------------------------------- */
+
+.field {
+  display: grid;
+  gap: var(--gap-xs);
+}
+
+.field__label {
+  color: var(--ink-mute);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.input,
+.select {
+  min-height: var(--tap);
+  padding: 8px 14px;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.select {
+  padding-right: 34px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 16px center, right 11px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+/* --- Topbar -------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+}
+
+.topbar__title {
+  flex: 1;
+  font-size: var(--fs-lg);
+  font-weight: 900;
+  text-align: center;
+}
+
+.topbar__end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: var(--tap);
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. Screens
+ * ------------------------------------------------------------------ */
+
+/* --- Title lockup -------------------------------------------------- */
+
+.lockup {
+  text-align: center;
+}
+
+.lockup__title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0.92;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+.lockup--lg .lockup__title {
+  font-size: var(--fs-2xl);
+}
+
+.lockup--sm .lockup__title {
+  font-size: var(--fs-xl);
+}
+
+.lockup__word {
+  background: linear-gradient(180deg, var(--grass-light), var(--grass-dark));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.08);
+}
+
+.lockup__word--alt {
+  background: linear-gradient(180deg, var(--sky), var(--info));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.lockup__tag {
+  margin-top: var(--gap-xs);
+  color: var(--ink-mute);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+/* --- Loading ------------------------------------------------------- */
+
+.spinner {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.spinner i {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--grass);
+  animation: hop 900ms var(--ease) infinite;
+}
+
+.spinner i:nth-child(2) {
+  background: var(--sky);
+  animation-delay: 120ms;
+}
+
+.spinner i:nth-child(3) {
+  background: var(--coin);
+  animation-delay: 240ms;
+}
+
+/* --- Menu ---------------------------------------------------------- */
+
+.menu__nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--gap-sm);
+}
+
+.howto {
+  padding: var(--gap);
+  border: 2px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
+.howto ul {
+  margin-top: var(--gap-xs);
+  display: grid;
+  gap: 4px;
+}
+
+.howto li::before {
+  content: "▸ ";
+  color: var(--grass-dark);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--gap-xs) var(--gap);
+  color: var(--ink-mute);
+  font-size: var(--fs-xs);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend kbd {
+  padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* --- Characters ---------------------------------------------------- */
+
+.char-stage {
+  display: grid;
+  grid-template-columns: minmax(120px, 40%) 1fr;
+  align-items: center;
+  gap: var(--gap);
+  padding: var(--gap-sm);
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+  background: radial-gradient(circle at 30% 120%, var(--surface-3), var(--surface-2) 70%);
+}
+
+/* The preview owns this box outright — the 3D canvas is stretched into it and
+   nothing else may share the space, or the renderer mis-measures itself. */
+.char-preview {
+  position: relative;
+  height: clamp(120px, 20vh, 200px);
+  overflow: hidden;
+}
+
+.char-preview__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.char-caption {
+  min-width: 0;
+}
+
+.char-caption__name {
+  font-size: var(--fs-lg);
+  font-weight: 900;
+}
+
+.char-caption__desc {
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+}
+
+.char-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: var(--gap-sm);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px;
+  /* Flex children default to min-height:auto, which would let the grid push
+     the panel past the viewport instead of scrolling inside it. */
+  min-height: 0;
+}
+
+.card {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-height: 132px;
+  padding: var(--gap-sm);
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--speed) var(--ease), border-color var(--speed) var(--ease),
+    box-shadow var(--speed) var(--ease);
+}
+
+.card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--rarity, var(--line-strong));
+  box-shadow: var(--shadow-2);
+}
+
+.card__rarity {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--rarity, var(--ink-mute));
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.card__name {
+  font-size: var(--fs-md);
+  font-weight: 900;
+}
+
+.card__perk {
+  color: var(--ink-soft);
+  font-size: var(--fs-xs);
+  line-height: 1.25;
+}
+
+.card__perk--none {
+  color: var(--ink-mute);
+  font-style: italic;
+}
+
+.card__foot {
+  align-self: end;
+  padding-top: var(--gap-xs);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+}
+
+.card__price {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card__state {
+  color: var(--ink-mute);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: var(--fs-xs);
+}
+
+.card__state--on {
+  color: var(--grass-dark);
+}
+
+.card[data-state="selected"] {
+  border-color: var(--grass-dark);
+  background: color-mix(in srgb, var(--grass) 16%, var(--surface-2));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--grass) 40%, transparent), var(--shadow-1);
+}
+
+.card[data-state="buy"] .card__price {
+  color: var(--coin-ink);
+}
+
+.card[data-state="locked"] {
+  /* Dimmed enough to read as unavailable, but not so far that the price —
+     the one thing the player needs from a locked card — becomes unreadable. */
+  opacity: 0.78;
+  filter: grayscale(0.3);
+  cursor: not-allowed;
+}
+
+/* --- Leaderboard --------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 8px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-3);
+  color: var(--ink-mute);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.table tbody tr:nth-child(even) {
+  background: var(--surface-2);
+}
+
+.table .col-rank {
+  width: 3ch;
+  font-weight: 900;
+  color: var(--ink-mute);
+}
+
+.table .col-score {
+  font-weight: 900;
+  font-size: var(--fs-md);
+}
+
+.table .col-coins .coin {
+  margin-right: 5px;
+  vertical-align: -0.1em;
+}
+
+.table .col-date {
+  color: var(--ink-mute);
+}
+
+.table .is-medal-1 .col-rank {
+  color: #8a6810; /* gold rank: 5.0:1 on the light table */
+}
+
+.table .is-medal-2 .col-rank {
+  color: #5f6878; /* silver rank: 4.8:1 */
+}
+
+.table .is-medal-3 .col-rank {
+  color: #8a5330; /* bronze rank: 5.1:1 */
+}
+
+/* Phones: drop the date rather than make the whole board scroll sideways. */
+@media (max-width: 480px) {
+  .table .col-date {
+    display: none;
+  }
+}
+
+.empty {
+  padding: var(--gap-lg);
+  border: 2px dashed var(--line);
+  border-radius: var(--r-md);
+  color: var(--ink-mute);
+  text-align: center;
+}
+
+/* --- Settings ------------------------------------------------------ */
+
+.settings {
+  display: grid;
+  gap: var(--gap-sm);
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: var(--gap-sm) var(--gap);
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.setting__text {
+  flex: 1;
+  display: grid;
+}
+
+.setting__label {
+  font-weight: 800;
+}
+
+.setting__hint {
+  color: var(--ink-mute);
+  font-size: var(--fs-xs);
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 62px;
+  height: var(--tap);
+  padding: 0;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  cursor: pointer;
+  transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease);
+}
+
+.switch__knob {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  transform: translateY(-50%);
+  transition: transform var(--speed) var(--ease);
+}
+
+.switch[aria-checked="true"] {
+  border-color: var(--grass-dark);
+  background: var(--grass);
+}
+
+.switch[aria-checked="true"] .switch__knob {
+  transform: translate(24px, -50%);
+}
+
+/* --- Stats (paused / game over) ------------------------------------ */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: var(--gap-sm);
+}
+
+.stat {
+  display: grid;
+  gap: 2px;
+  padding: var(--gap-sm);
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.stat span {
+  color: var(--ink-mute);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stat b {
+  font-size: var(--fs-lg);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Game over ----------------------------------------------------- */
+
+.gameover__eyebrow {
+  font-size: var(--fs-xl);
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: var(--danger-ink);
+}
+
+.screen--gameover[data-cause="water"] .gameover__eyebrow {
+  color: var(--info);
+}
+
+.screen--gameover[data-cause="eagle"] .gameover__eyebrow {
+  color: #8b5cf6;
+}
+
+.screen--gameover[data-cause="void"] .gameover__eyebrow {
+  color: var(--ink-soft);
+}
+
+.gameover__line {
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+}
+
+.gameover__score {
+  display: grid;
+  gap: 2px;
+  padding: var(--gap-sm);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.gameover__score-label {
+  color: var(--ink-mute);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.18em;
+}
+
+.gameover__score b {
+  font-size: var(--fs-2xl);
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.flair {
+  justify-self: center;
+  align-self: center;
+  padding: 6px 18px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--coin), #ffb347);
+  color: #3a2500;
+  font-size: var(--fs-sm);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  box-shadow: var(--shadow-1);
+  animation: flair-pulse 1.1s var(--ease) infinite alternate;
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. HUD
+ * ------------------------------------------------------------------ */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  padding: calc(var(--gap-sm) + var(--safe-t)) calc(var(--gap-sm) + var(--safe-r))
+    calc(var(--gap-sm) + var(--safe-b)) calc(var(--gap-sm) + var(--safe-l));
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+  pointer-events: none;
+}
+
+.hud__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.hud__scores {
+  display: grid;
+  gap: 2px;
+}
+
+/* The score is read at a glance mid-hop: outlined so it survives any biome. */
+.hud__score {
+  font-size: var(--fs-hud);
+  font-weight: 900;
+  line-height: 0.9;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35), 0 0 14px rgba(0, 0, 0, 0.35);
+  -webkit-text-stroke: 2px rgba(0, 0, 0, 0.35);
+  paint-order: stroke fill;
+}
+
+.hud__best {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.hud__right {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+}
+
+.hud__coins {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  background: rgba(12, 18, 40, 0.45);
+  color: #fff;
+  font-size: var(--fs-lg);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.hud__coins.is-pop-a {
+  animation: coin-pop 320ms var(--ease);
+}
+
+.hud__coins.is-pop-b {
+  animation: coin-pop-alt 320ms var(--ease);
+}
+
+.hud .btn--icon {
+  background: rgba(12, 18, 40, 0.45);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+  box-shadow: var(--shadow-1);
+  pointer-events: auto;
+}
+
+.hud__alert {
+  align-self: center;
+  margin-top: auto;
+  margin-bottom: 12%;
+  padding: 8px 18px;
+  border-radius: var(--r-pill);
+  background: rgba(232, 69, 60, 0.92);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-2);
+  animation: alert-flash 520ms steps(2, jump-none) infinite;
+}
+
+/* --- Power-up strip ------------------------------------------------ */
+
+.pw-strip {
+  display: flex;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+}
+
+.pw {
+  --p: 100;
+  --pw: #fff;
+  position: relative;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(12, 18, 40, 0.5);
+  box-shadow: var(--shadow-1);
+}
+
+/* Radial countdown: a conic sweep masked into a ring by the inner disc. */
+.pw__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--pw) calc(var(--p) * 1%), rgba(255, 255, 255, 0.18) 0);
+}
+
+.pw__ring::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: rgba(12, 18, 40, 0.86);
+}
+
+.pw__icon {
+  position: relative;
+  font-size: 1.05rem;
+  font-weight: 900;
+  color: #fff;
+  line-height: 1;
+}
+
+.pw.is-urgent {
+  animation: pw-blink 380ms steps(2, jump-none) infinite;
+}
+
+/* ------------------------------------------------------------------ *
+ * 6. Toasts
+ * ------------------------------------------------------------------ */
+
+.toast-stack {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + var(--safe-b));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-xs);
+  width: min(92vw, 26rem);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.toast {
+  width: 100%;
+  padding: 10px 16px;
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-align: center;
+  box-shadow: var(--shadow-2);
+  animation: toast-in 220ms var(--ease) both;
+}
+
+.toast--success {
+  border-color: var(--grass-dark);
+}
+
+.toast--error {
+  border-color: var(--danger-dark);
+  color: var(--danger-ink);
+}
+
+.toast--info {
+  border-color: var(--info);
+}
+
+.toast.is-out {
+  animation: toast-out 280ms var(--ease) both;
+}
+
+/* ------------------------------------------------------------------ *
+ * Fallbacks used by index.html / main.js
+ * ------------------------------------------------------------------ */
+
+.noscript,
+.fatal {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-content: center;
+  gap: var(--gap);
+  padding: var(--gap-lg);
+  background: var(--bg);
+  color: var(--ink);
+  text-align: center;
+  pointer-events: auto;
+}
+
+.fatal pre {
+  max-width: 90vw;
+  max-height: 40vh;
+  overflow: auto;
+  padding: var(--gap);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: var(--fs-xs);
+  text-align: left;
+  user-select: text;
+}
+
+/* ------------------------------------------------------------------ *
+ * 7. Motion
+ * ------------------------------------------------------------------ */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes coin-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Duplicate of coin-pop: alternating classes restart the animation without
+   forcing a reflow on every single pickup. */
+@keyframes coin-pop-alt {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes flair-pulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes alert-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+
+@keyframes pw-blink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* Honour both the OS preference and the in-game setting. Transforms and
+   animations are removed outright rather than shortened — vestibular triggers
+   do not care how quick the motion was. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .btn:active:not(:disabled),
+  .card:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+.ui[data-reduced-motion="on"] *,
+.ui[data-reduced-motion="on"] *::before,
+.ui[data-reduced-motion="on"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+
+.ui[data-reduced-motion="on"] .btn:active:not(:disabled),
+.ui[data-reduced-motion="on"] .card:hover:not(:disabled) {
+  transform: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * Breakpoints
+ * ------------------------------------------------------------------ */
+
+/* Phones in landscape and short windows: keep the panel scrollable and trim
+   the vertical rhythm so PLAY is always reachable without scrolling. */
+@media (max-height: 560px) {
+  .panel {
+    gap: var(--gap-sm);
+    padding: var(--gap-sm) var(--gap);
+  }
+
+  .lockup__tag,
+  .legend {
+    display: none;
+  }
+
+  .btn--play {
+    min-height: 52px;
+  }
+
+  .char-preview {
+    height: 110px;
+  }
+}
+
+@media (max-width: 380px) {
+  .menu__nav {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .char-grid {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  }
+
+  .setting {
+    padding: var(--gap-sm);
+    gap: var(--gap-sm);
+  }
+}
+
+/* Large desktops: the panels stop growing, so scale the reading size up a
+   notch instead of leaving a small island in the middle of a huge screen. */
+@media (min-width: 1600px) {
+  html,
+  body {
+    font-size: 18px;
+  }
+
+  .panel--wide {
+    width: min(100%, 72rem);
+  }
+
+  .char-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+}
+
+@media (min-width: 2200px) {
+  html,
+  body {
+    font-size: 20px;
+  }
+}
+
+/* Pointer-less devices get no hover lift (it sticks after a tap). */
+@media (hover: none) {
+  .card:hover:not(:disabled) {
+    transform: none;
+    box-shadow: var(--shadow-1);
+  }
+
+  .btn:hover:not(:disabled) {
+    filter: none;
+  }
+}
