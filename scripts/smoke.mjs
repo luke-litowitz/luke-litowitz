@@ -454,6 +454,76 @@ async function main() {
   if (deep.coinsSeen === 0) problems.push('no coins were generated in 300+ rows');
   if (deep.railRowsSeen === 0) problems.push('no rail rows were generated in 300+ rows');
 
+  /* --- The camera never sees past the edge of the world ---------------
+   * The camera pans with the player, so at an outer column on a wide display
+   * the frustum can reach beyond the last terrain column and show sky under
+   * the ground. Checked geometrically rather than by eye: unproject the four
+   * frustum corners onto the ground plane and confirm each lands on terrain
+   * that actually exists.
+   */
+  for (const [vw, vh, label] of [[2560, 1080, 'ultrawide'], [1280, 800, 'desktop'], [390, 844, 'phone']]) {
+    await page.setViewportSize({ width: vw, height: vh });
+    const edge = await page.evaluate((col) => {
+      const g = window.__crossy.game;
+      g.start();
+      g.player.x = col;
+      g.player.prevX = col;
+      for (let i = 0; i < 600; i++) g.fixedUpdate(1 / 120);
+      for (let i = 0; i < 200; i++) g.render(0, 1 / 60);
+
+      const cam = g.camera.camera;
+      cam.updateMatrixWorld(true);
+      const inv = cam.projectionMatrixInverse.elements;
+      const world = cam.matrixWorld.elements;
+      const apply = (m, v) => {
+        const [x, y, z] = v;
+        const w = m[3] * x + m[7] * y + m[11] * z + m[15] || 1;
+        return [
+          (m[0] * x + m[4] * y + m[8] * z + m[12]) / w,
+          (m[1] * x + m[5] * y + m[9] * z + m[13]) / w,
+          (m[2] * x + m[6] * y + m[10] * z + m[14]) / w,
+        ];
+      };
+      const unproject = (ndc) => apply(world, apply(inv, ndc));
+
+      // Real extent of the terrain, read off the geometry rather than assumed.
+      const halfWidth = g.terrain.geo.road.boundingBox.max.x;
+
+      let worstX = 0;
+      let worstRow = 0;
+      for (const nx of [-1, 1]) {
+        for (const ny of [-1, 1]) {
+          const near = unproject([nx, ny, -1]);
+          const far = unproject([nx, ny, 1]);
+          const dy = far[1] - near[1];
+          if (Math.abs(dy) < 1e-6) continue;
+          const t = -near[1] / dy; // where the corner ray crosses y = 0
+          const gx = near[0] + (far[0] - near[0]) * t;
+          const gz = near[2] + (far[2] - near[2]) * t;
+          worstX = Math.max(worstX, Math.abs(gx));
+          worstRow = Math.max(worstRow, g.world.minRow - -gz); // how far past the last row
+        }
+      }
+      return {
+        col,
+        halfWidth: +halfWidth.toFixed(1),
+        worstX: +worstX.toFixed(1),
+        rowsPastRear: +worstRow.toFixed(1),
+      };
+    }, 8);
+
+    log(`  camera edge (${label}):`, JSON.stringify(edge));
+    if (edge.worstX > edge.halfWidth) {
+      problems.push(
+        `at ${label}, the camera sees out to x=${edge.worstX} but terrain ends at ${edge.halfWidth}`,
+      );
+    }
+    if (edge.rowsPastRear > 0) {
+      problems.push(`at ${label}, the camera sees ${edge.rowsPastRear} rows past the last one`);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+
   /* --- Settings do not fight each other ------------------------------ */
   const settings = await page.evaluate(() => {
     const g = window.__crossy.game;

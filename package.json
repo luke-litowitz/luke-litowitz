@@ -11,7 +11,8 @@
     "check": "node scripts/check.mjs",
     "smoke": "node scripts/smoke.mjs",
     "a11y": "node scripts/a11y.mjs",
-    "verify": "npm run check && npm test && npm run smoke && npm run a11y"
+    "verify": "npm run check && npm test && npm run smoke && npm run a11y",
+    "bundle": "node scripts/bundle.mjs"
   },
   "keywords": [
     "game",

@@ -26,6 +26,21 @@ import { hash01 } from '../core/math.js';
 
 const WIDTH = COL_COUNT * TILE;
 
+/**
+ * Terrain extends well past the playable columns.
+ *
+ * The camera pans with the player (`focus.x = player.x * 0.42`), so at an
+ * outer column on a wide display the frustum reaches beyond the last column
+ * and you see the world end in a cliff with sky underneath. Widening the
+ * ground is aspect-ratio-proof in a way that clamping the camera is not: it
+ * costs two boxes a row and nothing at all in gameplay, since the hedges still
+ * mark where play stops.
+ */
+const APRON = 16 * TILE;
+const FULL_WIDTH = WIDTH + 2 * APRON;
+/** Centre of each apron slab, left and right of the playable strip. */
+const APRON_X = WIDTH / 2 + APRON / 2;
+
 /* ------------------------------------------------------------------ *
  * Geometry builders
  * ------------------------------------------------------------------ */
@@ -43,12 +58,20 @@ function grassGeometry(tint) {
       color: `rgb(${v},${v},${v})`,
     });
   }
+  const apron = Math.round((tint === 0 ? 1 : 0.93) * 0.97 * 255);
+  for (const side of [-1, 1]) {
+    boxes.push({
+      pos: [side * APRON_X, -0.2, 0],
+      size: [APRON, 0.4, TILE],
+      color: `rgb(${apron},${apron},${apron})`,
+    });
+  }
   return buildBoxesGeometry(boxes);
 }
 
 function roadGeometry() {
   const boxes = [
-    { pos: [0, -0.22 - ROAD_SINK, 0], size: [WIDTH, 0.4, TILE], color: '#ffffff' },
+    { pos: [0, -0.22 - ROAD_SINK, 0], size: [FULL_WIDTH, 0.4, TILE], color: '#ffffff' },
   ];
   return buildBoxesGeometry(boxes);
 }
@@ -57,7 +80,9 @@ function roadGeometry() {
 function roadDashGeometry(edge) {
   const boxes = [];
   const z = edge === 'front' ? -TILE / 2 : TILE / 2;
-  for (let c = COL_MIN; c <= COL_MAX; c += 2) {
+  const dashFrom = Math.floor(-FULL_WIDTH / 2);
+  const dashTo = Math.ceil(FULL_WIDTH / 2);
+  for (let c = dashFrom; c <= dashTo; c += 2) {
     boxes.push({
       pos: [c * TILE, -ROAD_SINK - 0.008, z],
       size: [TILE * 0.62, 0.02, 0.075],
@@ -69,13 +94,15 @@ function roadDashGeometry(edge) {
 
 function railBaseGeometry() {
   return buildBoxesGeometry([
-    { pos: [0, -0.22 - RAIL_SINK, 0], size: [WIDTH, 0.4, TILE], color: '#ffffff' },
+    { pos: [0, -0.22 - RAIL_SINK, 0], size: [FULL_WIDTH, 0.4, TILE], color: '#ffffff' },
   ]);
 }
 
 function railDetailGeometry() {
   const boxes = [];
-  for (let c = COL_MIN; c <= COL_MAX; c++) {
+  const from = Math.floor(-FULL_WIDTH / 2);
+  const to = Math.ceil(FULL_WIDTH / 2);
+  for (let c = from; c <= to; c++) {
     boxes.push({
       pos: [c * TILE, -RAIL_SINK + 0.03, 0],
       size: [TILE * 0.9, 0.07, 0.62],
@@ -85,7 +112,7 @@ function railDetailGeometry() {
   for (const z of [-0.22, 0.22]) {
     boxes.push({
       pos: [0, -RAIL_SINK + 0.085, z],
-      size: [WIDTH, 0.07, 0.1],
+      size: [FULL_WIDTH, 0.07, 0.1],
       color: PALETTE.rail,
     });
   }
@@ -94,7 +121,7 @@ function railDetailGeometry() {
 
 function waterGeometry() {
   return buildBoxesGeometry([
-    { pos: [0, -WATER_SINK - 0.3, 0], size: [WIDTH, 0.6, TILE], color: '#ffffff' },
+    { pos: [0, -WATER_SINK - 0.3, 0], size: [FULL_WIDTH, 0.6, TILE], color: '#ffffff' },
   ]);
 }
 
@@ -103,7 +130,7 @@ function waterFoamGeometry() {
   for (const z of [-TILE / 2 + 0.03, TILE / 2 - 0.03]) {
     boxes.push({
       pos: [0, -WATER_SINK + 0.005, z],
-      size: [WIDTH, 0.02, 0.06],
+      size: [FULL_WIDTH, 0.02, 0.06],
       color: PALETTE.waterFoam,
     });
   }

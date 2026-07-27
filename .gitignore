@@ -5,3 +5,4 @@ package-lock.json
 .playwright/
 screenshots/
 !docs/screenshots/
+dist/
