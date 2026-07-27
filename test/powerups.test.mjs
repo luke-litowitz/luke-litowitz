@@ -120,21 +120,18 @@ test('the shield is consumed once and only once', () => {
   assert.deepEqual(expired, ['shield']);
 });
 
-test('coins always have some pull, and the power-up widens it', () => {
+test('coins sit still until the magnet power-up is picked up', () => {
   const sys = new PowerupSystem();
-  assert.equal(sys.magnetRadius, COIN_MAGNET_BASE, 'a baseline pull is always on');
+  assert.equal(sys.magnetRadius, COIN_MAGNET_BASE);
+  assert.equal(COIN_MAGNET_BASE, 0, 'coins drifting toward the player reads as a bug');
   sys.activate('magnet');
   assert.equal(sys.magnetRadius, COIN_MAGNET_RADIUS);
-  assert.ok(
-    COIN_MAGNET_RADIUS > COIN_MAGNET_BASE * 1.8,
-    'the power-up must feel meaningfully stronger than the baseline',
-  );
+  assert.ok(COIN_MAGNET_RADIUS > 2, 'the power-up has to be worth picking up');
 });
 
 test('the magnet radius honours a character perk multiplier', () => {
   const sys = new PowerupSystem();
   sys.magnetMultiplier = 1.15;
-  assert.ok(Math.abs(sys.magnetRadius - COIN_MAGNET_BASE * 1.15) < 1e-9);
   sys.activate('magnet');
   assert.ok(Math.abs(sys.magnetRadius - COIN_MAGNET_RADIUS * 1.15) < 1e-9);
 });
@@ -179,7 +176,7 @@ test('reset clears everything', () => {
   sys.activate('magnet');
   sys.reset();
   assert.equal(sys.hudList().length, 0);
-  assert.equal(sys.magnetRadius, COIN_MAGNET_BASE, 'reset falls back to the baseline pull');
+  assert.equal(sys.magnetRadius, COIN_MAGNET_BASE, 'reset leaves no lingering pull');
   assert.equal(sys.timeScale, 1);
   assert.equal(sys.consumeShield(), false);
 });

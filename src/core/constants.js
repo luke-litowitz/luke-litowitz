@@ -88,23 +88,29 @@ export const EAGLE_WARNING = 1.15;
  * ------------------------------------------------------------------ */
 
 export const COIN_VALUE = 1;
-export const COIN_PICKUP_RADIUS = 0.62;
+export const COIN_PICKUP_RADIUS = 0.7;
 
 /**
- * Coins always have a little pull, not just under the magnet power-up.
- * Without it, collection requires landing on a coin's exact column — with 17
- * playable columns that is a ~5% chance per coin, which starves the economy
- * to the point where the cheapest character costs ~90 runs.
+ * Coins do not move on their own.
+ *
+ * An earlier build gave them a permanent 1.7-tile pull to rescue a starved
+ * economy, but coins visibly drifting toward you reads as a bug rather than a
+ * feature, and it left the magnet power-up with nothing to be. Distance now
+ * carries the economy instead, so a coin can just be a coin you go and get.
  */
-export const COIN_MAGNET_BASE = 1.7;
+export const COIN_MAGNET_BASE = 0;
 /** Radius while the magnet power-up is active. */
 export const COIN_MAGNET_RADIUS = 3.8;
 
 /** Score milestone that awards bonus coins. */
 export const MILESTONE_EVERY = 25;
 export const MILESTONE_BONUS = 5;
-/** Coins awarded per this many rows survived, paid out at the end of a run. */
-export const DISTANCE_PER_COIN = 12;
+/**
+ * Coins awarded per this many rows survived, paid out at the end of a run.
+ * This is deliberately the largest share of a run's income: going far is the
+ * game, so going far should be what pays.
+ */
+export const DISTANCE_PER_COIN = 8;
 
 /* ------------------------------------------------------------------ *
  * World generation

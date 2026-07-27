@@ -34,6 +34,21 @@ import * as THREE from '../../vendor/three/three.module.js';
 
 const _color = new THREE.Color();
 
+/**
+ * How far a coincident face is pushed clear of its twin.
+ *
+ * Two axis-aligned boxes whose faces point the same way and sit at the same
+ * coordinate put two surfaces at identical depth. The GPU then has no basis to
+ * choose between them, picks per pixel, and the seam shimmers as the camera
+ * moves — the taxi roof sign and the boundary hedges were both doing this.
+ *
+ * The camera is orthographic, so depth precision is linear and uniform: this
+ * is never a near/far-plane problem, only exact coincidence. 4 mm at a tile
+ * size of 1 is ~0.15 px on screen — far below anything visible, and hundreds
+ * of depth-buffer steps at 24-bit.
+ */
+const DEPTH_SEPARATION = 0.004;
+
 /* ------------------------------------------------------------------ *
  * Geometry construction
  * ------------------------------------------------------------------ */
@@ -55,7 +70,8 @@ const QUAD_ORDER = [0, 1, 2, 0, 2, 3];
  * @param {Array} boxes
  * @returns {THREE.BufferGeometry}
  */
-export function buildBoxesGeometry(boxes) {
+export function buildBoxesGeometry(rawBoxes) {
+  const boxes = separateCoplanarFaces(rawBoxes);
   const triCount = boxes.length * 12;
   const vertCount = triCount * 3;
   const positions = new Float32Array(vertCount * 3);
@@ -167,9 +183,146 @@ export function disposeMaterialCache() {
   materialCache.clear();
 }
 
-/* ------------------------------------------------------------------ *
- * Model assembly
- * ------------------------------------------------------------------ */
+
+/**
+ * Nudge same-facing coincident faces apart so nothing z-fights.
+ *
+ * Faces that merely touch back-to-back are left alone — culling already
+ * resolves those. When a real conflict is found the *smaller* box moves
+ * outward, which is almost always the decorative one (a sign on a roof, trim
+ * on a body), so it ends up sitting fractionally proud rather than sunk.
+ *
+ * @param {Array} boxes
+ * @returns {Array} a new list; the input is not modified
+ */
+export function separateCoplanarFaces(boxes, passes = 8) {
+  let current = boxes;
+  for (let pass = 0; pass < passes; pass++) {
+    const next = separateOnce(current);
+    if (next === current) break; // nothing left to resolve
+    current = next;
+  }
+  return current;
+}
+
+const EPS = 1e-6;
+/** Overlap smaller than this is a hairline the eye will never resolve. */
+const MIN_OVERLAP = 0.02;
+
+/** @private One resolution pass; returns the input unchanged when clean. */
+function separateOnce(boxes) {
+  const n = boxes.length;
+  if (n < 2) return boxes;
+
+  const lo = [];
+  const hi = [];
+  const area = [];
+  for (const b of boxes) {
+    const [cx, cy, cz] = b.pos || [0, 0, 0];
+    const [sx, sy, sz] = b.size;
+    lo.push([cx - sx / 2, cy - sy / 2, cz - sz / 2]);
+    hi.push([cx + sx / 2, cy + sy / 2, cz + sz / 2]);
+    area.push([sy * sz, sx * sz, sx * sy]); // cross-section per axis
+  }
+
+  const overlaps = (i, j, ax) => {
+    const u = (ax + 1) % 3;
+    const w = (ax + 2) % 3;
+    return (
+      Math.min(hi[i][u], hi[j][u]) - Math.max(lo[i][u], lo[j][u]) >= MIN_OVERLAP &&
+      Math.min(hi[i][w], hi[j][w]) - Math.max(lo[i][w], lo[j][w]) >= MIN_OVERLAP
+    );
+  };
+
+  // shift[i][axis] = [outwardOnMin, outwardOnMax]
+  const shift = boxes.map(() => [
+    [0, 0],
+    [0, 0],
+    [0, 0],
+  ]);
+  let dirty = false;
+
+  for (let ax = 0; ax < 3; ax++) {
+    for (const side of [0, 1]) {
+      const coord = side === 0 ? lo : hi;
+
+      // Group every box that shares this face coordinate. Handling the whole
+      // group at once matters: with three boxes on one plane, deciding pair by
+      // pair moves two of them by the same amount and they stay coincident.
+      const groups = new Map();
+      for (let i = 0; i < n; i++) {
+        const key = Math.round(coord[i][ax] / EPS);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(i);
+      }
+
+      for (const group of groups.values()) {
+        if (group.length < 2) continue;
+        if (!group.some((i, k) => group.slice(k + 1).some((j) => overlaps(i, j, ax)))) continue;
+
+        // Largest face holds the plane; the rest step outward by distinct
+        // amounts, so no two of them can land on the same coordinate.
+        const ranked = group.slice().sort((i, j) => area[j][ax] - area[i][ax] || i - j);
+        for (let k = 1; k < ranked.length; k++) {
+          shift[ranked[k]][ax][side] = k * DEPTH_SEPARATION;
+          dirty = true;
+        }
+      }
+    }
+  }
+
+  if (!dirty) return boxes;
+
+  return boxes.map((b, i) => {
+    const sh = shift[i];
+    if (!sh.some((axis) => axis[0] || axis[1])) return b;
+    const min = lo[i].slice();
+    const max = hi[i].slice();
+    for (let ax = 0; ax < 3; ax++) {
+      min[ax] -= sh[ax][0];
+      max[ax] += sh[ax][1];
+    }
+    return {
+      ...b,
+      pos: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2],
+      size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]],
+    };
+  });
+}
+
+/**
+ * Run the coplanar pass over every part at once, in model space.
+ *
+ * Parts carry their own pivot, so boxes are lifted into model space, resolved
+ * together, then pushed back down into each part's local frame.
+ *
+ * @param {Array} partList
+ * @returns {Map<object, Array>} part -> adjusted boxes
+ * @private
+ */
+function separateAcrossParts(partList) {
+  const flat = [];
+  const owner = [];
+  for (const part of partList) {
+    const [px, py, pz] = part.pivot || [0, 0, 0];
+    for (const b of part.boxes || []) {
+      const [cx, cy, cz] = b.pos || [0, 0, 0];
+      flat.push({ ...b, pos: [px + cx, py + cy, pz + cz] });
+      owner.push(part);
+    }
+  }
+
+  const fixed = separateCoplanarFaces(flat);
+  const out = new Map();
+  for (let i = 0; i < fixed.length; i++) {
+    const part = owner[i];
+    const [px, py, pz] = part.pivot || [0, 0, 0];
+    const [cx, cy, cz] = fixed[i].pos;
+    if (!out.has(part)) out.set(part, []);
+    out.get(part).push({ ...fixed[i], pos: [cx - px, cy - py, cz - pz] });
+  }
+  return out;
+}
 
 /**
  * Build a model from a spec.
@@ -183,9 +336,14 @@ export function buildVoxelModel(spec, opts = {}) {
   const castShadow = opts.castShadow ?? spec.castShadow ?? true;
   const receiveShadow = opts.receiveShadow ?? spec.receiveShadow ?? false;
 
+  // Resolve coincident faces across the *whole* model, not part by part: a
+  // taxi's roof sign and the trim it sits on live in different parts, and
+  // that pair was one of the visible offenders.
+  const separated = separateAcrossParts(spec.parts || []);
+
   for (const part of spec.parts || []) {
     if (!part.boxes || part.boxes.length === 0) continue;
-    const geo = buildBoxesGeometry(part.boxes);
+    const geo = buildBoxesGeometry(separated.get(part) || part.boxes);
     const mat = getVoxelMaterial(part.material || 'lambert', part.opacity ?? 1);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = part.name || 'part';
